@@ -418,13 +418,19 @@
     head.innerHTML = '<h2>Scorer props</h2><span class="note">single match vs an average opponent · anytime (≥1) &amp; brace (≥2) from each player\'s per-match Poisson rate</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel"); p.style.overflowX = "auto";
-    p.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Player</th><th>Anytime</th><th>Brace</th><th>Rate (λ)</th><th>Proj. tourn. goals</th></tr></thead><tbody>' +
+    p.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Player</th><th>Age · Ht</th><th>Anytime</th><th>Brace</th><th>Rate (λ)</th><th>Proj. tourn. goals</th></tr></thead><tbody>' +
       pp.map(function (r) {
-        return '<tr><td style="text-align:left"><span class="who" style="display:flex;align-items:center;gap:8px"><img class="hs sm" src="' + (hs[r.player] || "") + '" alt="" style="width:26px;height:26px;border-radius:50%">' + esc(r.player) + " " + flagImg(r.team, "sm") + '</span></td>' +
+        var a = r.attrs, who = a ? (a.age != null ? a.age + "y" : "") + (a.height_cm ? " · " + a.height_cm + "cm" : "") : "";
+        return '<tr><td style="text-align:left"><span class="who" style="display:flex;align-items:center;gap:8px"><img class="hs sm" src="' + (hs[r.player] || "") + '" alt="" style="width:26px;height:26px;border-radius:50%">' + esc(r.player) + " " + flagImg(r.team, "sm") + (a && a.foot ? ' <span class="faint" style="font-size:11px">' + esc(a.foot) + "</span>" : "") + '</span></td>' +
+          '<td class="faint">' + (who || "—") + "</td>" +
           '<td><span class="barcell" style="width:' + (r.anytime * 46) + 'px"></span> ' + (r.anytime * 100).toFixed(0) + "%</td>" +
           "<td>" + (r.multi * 100).toFixed(0) + "%</td><td>" + r.rate.toFixed(2) + "</td><td>" + r.tournament_goals.toFixed(1) + "</td></tr>";
       }).join("") + "</tbody></table>";
     wrap.appendChild(p);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    var nA = pp.filter(function (r) { return r.attrs; }).length;
+    note.textContent = "Age/height/foot from the CC0 Transfermarkt dump (basis tm) where a confident name+nation match exists (" + nA + " of " + pp.length + " shown).";
+    wrap.appendChild(note);
   }
 
   function renderTournament(root) {
