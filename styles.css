@@ -118,6 +118,7 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .pbar { position: relative; min-width: 64px; }
 .pbar > i { position: absolute; inset: 0; left: auto; right: 0; }
 .barcell { display: inline-block; height: 7px; border-radius: 5px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 40%, transparent)); vertical-align: middle; }
+.barcell.hot { background: linear-gradient(90deg, #e34a33, #fec44f); }
 .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .chip.pos { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
 .chip.neg { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }

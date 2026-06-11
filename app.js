@@ -365,11 +365,57 @@
     radar();
   }
 
+  function conditionsView(wrap) {
+    var c = D.conditions || {}; var venues = c.venues || {}; var teams = c.teams || {};
+    var vnames = Object.keys(venues); if (!vnames.length) return;
+    var head = ce("div", "sec-head"); head.id = "conditions";
+    head.innerHTML = '<h2>Conditions & logistics</h2><span class="note">venue heat (WBGT proxy) + each team\'s group-stage travel, rest, altitude & heat burden</span>';
+    wrap.appendChild(head);
+    // venue heat scale — horizontal bars by WBGT, hot→cool.
+    var vs = vnames.map(function (n) { return venues[n]; }).sort(function (a, b) { return b.wbgt - a.wbgt; });
+    var vp = ce("div", "panel"); vp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Venue heat — WBGT (°C) · ▦ = roof / AC</h4>';
+    var cn = ce("div", "chart"); vp.appendChild(cn); wrap.appendChild(vp);
+    mkChart(cn, Object.assign(axisTheme(), {
+      grid: { left: 8, right: 40, top: 6, bottom: 18, containLabel: true },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") },
+        formatter: function (ps) { var v = vs[ps[0].dataIndex]; return "<b>" + esc(v.city) + "</b> (" + esc(v.nation) + ")<br>WBGT " + v.wbgt + "°C · heat-load " + (v.heat_load * 100).toFixed(0) + "%<br>" + v.temp_c + "°C / " + v.rh_pct + "% RH · alt " + v.altitude_m + "m" + (v.climate_controlled ? "<br>roof / AC" : ""); } },
+      xAxis: Object.assign({ type: "value", name: "WBGT °C", nameLocation: "middle", nameGap: 22, nameTextStyle: { color: cssVar("--muted") } }, axisStyle()),
+      yAxis: Object.assign({ type: "category", inverse: true, data: vs.map(function (v) { return v.city + (v.climate_controlled ? " ▦" : ""); }) }, axisStyle()),
+      visualMap: { show: false, min: 24, max: 33, dimension: 0, inRange: { color: ["#2c7fb8", "#fec44f", "#e34a33"] } },
+      series: [{ type: "bar", data: vs.map(function (v) { return v.wbgt; }), barWidth: 13, itemStyle: { borderRadius: [0, 4, 4, 0] },
+        label: { show: true, position: "right", color: cssVar("--muted"), formatter: function (p) { return p.value + "°"; } } }],
+    }));
+    // per-team logistics table (sortable).
+    var rows = Object.keys(teams).map(function (t) { return Object.assign({ team: t }, teams[t]); });
+    var tp = ce("div", "panel"); tp.style.overflowX = "auto";
+    var cols = [["team", "Team", "s"], ["travel_km", "Travel km", "n"], ["min_rest_days", "Min rest", "n"],
+      ["max_altitude_m", "Max alt (m)", "n"], ["heat_burden", "Heat burden", "n"], ["acclim_gap", "Acclim. gap", "n"]];
+    var st = { key: "heat_burden", dir: -1 };
+    var maxB = Math.max.apply(null, rows.map(function (r) { return r.heat_burden || 0; })) || 1;
+    var tbl = ce("table", "tbl sticky"); tp.appendChild(tbl); wrap.appendChild(tp);
+    function draw() {
+      var data = rows.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
+      tbl.innerHTML = "<thead><tr>" + cols.map(function (cc) { return '<th data-k="' + cc[0] + '" class="' + (cc[0] === st.key ? (st.dir < 0 ? "sorted" : "asc") : "") + '">' + cc[1] + "</th>"; }).join("") + "</tr></thead><tbody>" +
+        data.map(function (r) {
+          return "<tr>" + cols.map(function (cc) {
+            var k = cc[0], v = r[k];
+            if (k === "team") return "<td>" + teamCell(r.team) + "</td>";
+            if (k === "heat_burden") return '<td><span class="barcell hot" style="width:' + (v / maxB * 46) + 'px"></span> ' + (v == null ? "—" : v.toFixed(2)) + "</td>";
+            if (v == null) return "<td>—</td>";
+            return "<td>" + (k === "travel_km" || k === "max_altitude_m" ? Math.round(v).toLocaleString() : (k === "min_rest_days" ? v : v.toFixed(2))) + "</td>";
+          }).join("") + "</tr>";
+        }).join("") + "</tbody>";
+      tbl.querySelectorAll("th").forEach(function (th) { th.onclick = function () { var k = th.dataset.k; st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); }; });
+    }
+    draw();
+    var note = ce("p", "faint"); note.style.fontSize = "12px"; note.textContent = c.note || ""; wrap.appendChild(note);
+  }
+
   function renderTournament(root) {
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
-    titleTable(wrap); ratingsView(wrap); styleView(wrap); bracketView(wrap); groupsView(wrap); distView(wrap);
-    finalsView(wrap); upsetView(wrap); drawLuckView(wrap); goldenBootView(wrap);
+    titleTable(wrap); ratingsView(wrap); styleView(wrap); conditionsView(wrap); bracketView(wrap);
+    groupsView(wrap); distView(wrap); finalsView(wrap); upsetView(wrap); drawLuckView(wrap); goldenBootView(wrap);
   }
 
   // ---- MATCH -----------------------------------------------------------------------------------
