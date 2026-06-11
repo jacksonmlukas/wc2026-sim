@@ -433,12 +433,28 @@
     wrap.appendChild(note);
   }
 
+  function goldenGloveView(wrap) {
+    var gg = (D.awards || {}).golden_glove || []; if (!gg.length) return;
+    var head = ce("div", "sec-head"); head.id = "glove";
+    head.innerHTML = '<h2>🧤 Golden Glove</h2><span class="note">projected clean sheets (Monte Carlo) attributed to each nation\'s keeper</span>';
+    wrap.appendChild(head);
+    var mx = gg[0].exp_clean_sheets || 1;
+    var p = ce("div", "panel");
+    p.innerHTML = gg.map(function (r, i) {
+      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span><span class="who"><span class="pn">' + esc(r.gk || "(keeper TBD)") + '</span><span class="tn">' + flagImg(r.team, "sm") + esc(r.team) + (r.caps ? ' <span class="faint">· ' + r.caps + " caps</span>" : "") + '</span></span><span class="v"><span class="barcell" style="width:' + (r.exp_clean_sheets / mx * 46) + 'px"></span> ' + r.exp_clean_sheets.toFixed(1) + " clean sheets</span></div>";
+    }).join("");
+    wrap.appendChild(p);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Keeper = each nation’s most-capped goalkeeper in the CC0 Transfermarkt squad (basis tm). A full P(win) Golden Glove, a VAEP Golden Ball and a best-young-player race are documented as gated in GATED_ITEMS.md.";
+    wrap.appendChild(note);
+  }
+
   function renderTournament(root) {
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
     titleTable(wrap); ratingsView(wrap); styleView(wrap); conditionsView(wrap); bracketView(wrap);
     groupsView(wrap); distView(wrap); finalsView(wrap); upsetView(wrap); drawLuckView(wrap);
-    goldenBootView(wrap); playerPropsView(wrap);
+    goldenBootView(wrap); goldenGloveView(wrap); playerPropsView(wrap);
   }
 
   // ---- MATCH -----------------------------------------------------------------------------------
