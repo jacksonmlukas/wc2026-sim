@@ -281,10 +281,51 @@
     wrap.appendChild(p);
   }
 
+  function ratingsView(wrap) {
+    var rs = D.ratings || []; if (!rs.length) return;
+    var head = ce("div", "sec-head"); head.id = "ratings";
+    head.innerHTML = '<h2>Team ratings</h2><span class="note">results-Elo (+host bonus) and per-match attack vs defense — the "why" behind the odds</span>';
+    wrap.appendChild(head);
+    // attack-vs-defense scatter (top 24 by Elo)
+    var pts = rs.slice(0, 24);
+    var p = ce("div", "panel"); var cn = ce("div", "chart"); p.appendChild(cn); wrap.appendChild(p);
+    mkChart(cn, Object.assign(axisTheme(), {
+      grid: { left: 8, right: 18, top: 18, bottom: 28, containLabel: true },
+      tooltip: { backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") },
+        formatter: function (pp) { var d = pp.data; return "<b>" + esc(d.team) + "</b><br>Elo " + d.elo + "<br>attack " + d.value[0] + " · defense " + d.value[1]; } },
+      xAxis: Object.assign({ type: "value", name: "attack → (exp. goals for)", nameLocation: "middle", nameGap: 22, nameTextStyle: { color: cssVar("--muted") } }, axisStyle()),
+      yAxis: Object.assign({ type: "value", inverse: true, name: "← defense (goals against)", nameLocation: "middle", nameGap: 30, nameTextStyle: { color: cssVar("--muted") } }, axisStyle()),
+      series: [{ type: "scatter", symbolSize: function (v) { return 8 + (v[2] || 0) / 220; },
+        data: pts.map(function (r) { return { team: r.team, elo: r.elo, value: [r.attack, r.defense, r.elo] }; }),
+        itemStyle: { color: cssVar("--accent"), opacity: .85 },
+        label: { show: true, position: "right", fontSize: 10, color: cssVar("--muted"), formatter: function (pp) { return pp.data.team; } } }],
+    }));
+    // sortable ratings table
+    var tp = ce("div", "panel"); tp.style.overflowX = "auto";
+    var cols = [["team", "Team", "s"], ["elo", "Elo", "n"], ["attack", "Attack", "n"], ["defense", "Defense", "n"], ["exp_goals_for", "Proj GF", "n"], ["exp_goals_against", "Proj GA", "n"]];
+    var st = { key: "elo", dir: -1 };
+    var maxE = Math.max.apply(null, rs.map(function (r) { return r.elo; })) || 1;
+    var tbl = ce("table", "tbl sticky"); tp.appendChild(tbl); wrap.appendChild(tp);
+    function draw() {
+      var data = rs.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
+      tbl.innerHTML = "<thead><tr>" + cols.map(function (c) { return '<th data-k="' + c[0] + '" class="' + (c[0] === st.key ? (st.dir < 0 ? "sorted" : "asc") : "") + '">' + c[1] + "</th>"; }).join("") + "</tr></thead><tbody>" +
+        data.map(function (r) {
+          return "<tr>" + cols.map(function (c) {
+            var k = c[0], v = r[k];
+            if (k === "team") return "<td>" + teamCell(r.team) + (r.host ? ' <span class="chip pos" title="co-host">host</span>' : "") + "</td>";
+            if (k === "elo") return '<td><span class="barcell" style="width:' + (v / maxE * 46) + 'px"></span> ' + v.toFixed(0) + "</td>";
+            return "<td>" + (typeof v === "number" ? v.toFixed(2) : esc(v)) + "</td>";
+          }).join("") + "</tr>";
+        }).join("") + "</tbody>";
+      tbl.querySelectorAll("th").forEach(function (th) { th.onclick = function () { var k = th.dataset.k; st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); }; });
+    }
+    draw();
+  }
+
   function renderTournament(root) {
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
-    titleTable(wrap); bracketView(wrap); groupsView(wrap); distView(wrap);
+    titleTable(wrap); ratingsView(wrap); bracketView(wrap); groupsView(wrap); distView(wrap);
     finalsView(wrap); upsetView(wrap); drawLuckView(wrap); goldenBootView(wrap);
   }
 
