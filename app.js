@@ -411,11 +411,28 @@
     var note = ce("p", "faint"); note.style.fontSize = "12px"; note.textContent = c.note || ""; wrap.appendChild(note);
   }
 
+  function playerPropsView(wrap) {
+    var pp = D.player_props || []; if (!pp.length) return;
+    var hs = D.headshots || {};
+    var head = ce("div", "sec-head"); head.id = "props";
+    head.innerHTML = '<h2>Scorer props</h2><span class="note">single match vs an average opponent · anytime (≥1) &amp; brace (≥2) from each player\'s per-match Poisson rate</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel"); p.style.overflowX = "auto";
+    p.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Player</th><th>Anytime</th><th>Brace</th><th>Rate (λ)</th><th>Proj. tourn. goals</th></tr></thead><tbody>' +
+      pp.map(function (r) {
+        return '<tr><td style="text-align:left"><span class="who" style="display:flex;align-items:center;gap:8px"><img class="hs sm" src="' + (hs[r.player] || "") + '" alt="" style="width:26px;height:26px;border-radius:50%">' + esc(r.player) + " " + flagImg(r.team, "sm") + '</span></td>' +
+          '<td><span class="barcell" style="width:' + (r.anytime * 46) + 'px"></span> ' + (r.anytime * 100).toFixed(0) + "%</td>" +
+          "<td>" + (r.multi * 100).toFixed(0) + "%</td><td>" + r.rate.toFixed(2) + "</td><td>" + r.tournament_goals.toFixed(1) + "</td></tr>";
+      }).join("") + "</tbody></table>";
+    wrap.appendChild(p);
+  }
+
   function renderTournament(root) {
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
     titleTable(wrap); ratingsView(wrap); styleView(wrap); conditionsView(wrap); bracketView(wrap);
-    groupsView(wrap); distView(wrap); finalsView(wrap); upsetView(wrap); drawLuckView(wrap); goldenBootView(wrap);
+    groupsView(wrap); distView(wrap); finalsView(wrap); upsetView(wrap); drawLuckView(wrap);
+    goldenBootView(wrap); playerPropsView(wrap);
   }
 
   // ---- MATCH -----------------------------------------------------------------------------------
