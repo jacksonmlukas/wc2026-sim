@@ -631,12 +631,38 @@
     return box;
   }
 
+  function trackRecordView(wrap) {
+    var tr = D.track_record || {}; if (!tr.baseline) return;
+    var b = tr.baseline;
+    var h = ce("div", "sec-head"); h.innerHTML = "<h2 style='font-size:18px'>Track record vs reality</h2><span class='note'>the immutable pre-tournament baseline, graded as results land</span>";
+    wrap.appendChild(h);
+    var p = ce("div", "panel");
+    if (tr.status === "awaiting" || !tr.scored) {
+      p.innerHTML = '<p>Baseline prediction <b>locked ' + esc(b.date) + '</b> (' + (b.n_sims ? (+b.n_sims).toLocaleString() : "?") + ' sims, seed ' + esc(String(b.seed)) + ', git ' + esc(String(b.git_sha)) + '). ' +
+        (tr.n_results ? esc(String(tr.n_results)) + " match(es) ingested; group scoring begins once group games are played." : "Awaiting the first kickoff — every fixture’s pre-match forecast is frozen and will be scored against the real result.") + '</p>';
+      wrap.appendChild(p); return;
+    }
+    var s = tr.scored;
+    var cards = ce("div", "kpi-cards");
+    function card(big, lbl, sub, good) { var c = ce("div", "kpi " + (good ? "good" : "")); c.innerHTML = '<div class="lbl">' + lbl + '</div><div class="val">' + big + '</div><div class="sub">' + sub + "</div>"; return c; }
+    cards.appendChild(card(s.brier != null ? s.brier.toFixed(3) : "—", "Live Brier (" + s.n + " played)", s.brier_naive != null ? ((s.beats_prior ? "✓ beats " : "vs ") + s.brier_naive.toFixed(3) + " prior") : "", s.beats_prior));
+    if (s.scoreline_hit_rate != null) cards.appendChild(card((s.scoreline_hit_rate * 100).toFixed(0) + "%", "Exact-scoreline hit rate", "most-likely scoreline landed"));
+    if (s.log_loss != null) cards.appendChild(card(s.log_loss.toFixed(3), "Live log-loss", "lower is better"));
+    p.appendChild(cards); wrap.appendChild(p);
+    if ((tr.surprises || []).length) {
+      var sp = ce("div", "panel"); sp.innerHTML = "<h4 style='font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px'>Biggest surprises</h4>" +
+        tr.surprises.map(function (m) { return '<div class="gb-row"><span class="who">' + flagImg(m.home, "sm") + " " + esc(m.home) + " " + esc(m.actual_score) + " " + esc(m.away) + " " + flagImg(m.away, "sm") + '</span><span class="faint" style="font-size:12px">model gave the ' + esc(m.actual) + ' ' + (m.p_actual * 100).toFixed(0) + "%</span></div>"; }).join("");
+      wrap.appendChild(sp);
+    }
+  }
+
   // ---- MODEL -----------------------------------------------------------------------------------
   function renderModel(root) {
     var ev = D.eval || {}, wrap = ce("div", "wrap");
     root.appendChild(wrap);
     var head = ce("div", "sec-head"); head.innerHTML = '<h2>The model</h2><span class="note">two engines · how it scores · the honest limits</span>';
     wrap.appendChild(head);
+    trackRecordView(wrap);
     var intro = ce("div", "panel prose");
     intro.innerHTML = "<p><b>Two decoupled engines.</b> A fast <b>Prediction Engine</b> (Elo + Dixon–Coles bivariate Poisson) runs the whole-tournament Monte Carlo in milliseconds per match — that's what every odds, bracket and distribution on this site comes from. A generative <b>Realism Engine</b> (an events-as-language transformer over SPADL tokens) writes a single match event-by-event into a believable box score. They're decoupled on purpose: a transformer match is ~3,400 forward passes, a tournament is billions — so the transformer informs prediction by <i>distillation</i>, never inside the Monte Carlo loop.</p>";
     wrap.appendChild(intro);
