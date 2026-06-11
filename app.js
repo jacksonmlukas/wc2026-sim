@@ -322,10 +322,53 @@
     draw();
   }
 
+  var STYLE_LABEL = { possession: "Possession", press: "High press", directness: "Directness", width: "Width", tempo: "Carrying / tempo", set_pieces: "Set-piece reliance" };
+  function styleView(wrap) {
+    var sty = D.style || {}; var teams = sty.teams || {}; var axes = sty.axes || [];
+    var names = Object.keys(teams); if (!names.length || !axes.length) return;
+    var head = ce("div", "sec-head"); head.id = "style";
+    head.innerHTML = '<h2>Play-style profiles</h2><span class="note">event-derived style axes (normalized across the field) — pick a team, add a second to compare</span>';
+    wrap.appendChild(head);
+    // order teams by Elo where available, else alphabetical.
+    var order = (D.odds_sorted || []).filter(function (t) { return teams[t]; });
+    names.sort(); order = order.concat(names.filter(function (t) { return order.indexOf(t) < 0; }));
+    var p = ce("div", "panel");
+    var ctrl = ce("div", "stylectrl");
+    function opts(sel) { return order.map(function (t) { return '<option value="' + esc(t) + '"' + (t === sel ? " selected" : "") + ">" + esc(t) + "</option>"; }).join(""); }
+    var t0 = order[0], t1 = "";
+    ctrl.innerHTML = '<label>Team <select class="dsel s0">' + opts(t0) + '</select></label>' +
+      '<label>Compare <select class="dsel s1"><option value="">— none —</option>' + opts(t1) + "</select></label>";
+    p.appendChild(ctrl);
+    var cn = ce("div", "chart"); p.appendChild(cn); wrap.appendChild(p);
+    var note = ce("p", "faint"); note.style.fontSize = "12.5px";
+    note.innerHTML = "Axes from the open SPADL event corpus; " + names.length + " of the 48 finalists have open event data (the rest are omitted, not estimated).";
+    wrap.appendChild(note);
+    function radar() {
+      var a = ctrl.querySelector(".s0").value, b = ctrl.querySelector(".s1").value;
+      var series = [];
+      function row(t) { return axes.map(function (ax) { return teams[t].axes[ax]; }); }
+      function rawTip(t) { return axes.map(function (ax) { return (teams[t].raw[ax]); }); }
+      var data = [{ value: row(a), name: a, raw: rawTip(a) }];
+      if (b && teams[b]) data.push({ value: row(b), name: b, raw: rawTip(b) });
+      mkChart(cn, {
+        textStyle: { fontFamily: cssVar("--font") },
+        tooltip: { backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
+        legend: { data: data.map(function (d) { return d.name; }), top: 0, textStyle: { color: cssVar("--muted") } },
+        radar: { indicator: axes.map(function (ax) { return { name: STYLE_LABEL[ax] || ax, max: 1 }; }),
+          axisName: { color: cssVar("--muted"), fontSize: 11 }, splitLine: { lineStyle: { color: cssVar("--line") } },
+          splitArea: { areaStyle: { color: ["transparent"] } }, axisLine: { lineStyle: { color: cssVar("--line") } } },
+        color: [cssVar("--accent"), cssVar("--away")],
+        series: [{ type: "radar", data: data.map(function (d) { return { value: d.value, name: d.name, areaStyle: { opacity: .18 } }; }) }],
+      });
+    }
+    ctrl.querySelector(".s0").onchange = radar; ctrl.querySelector(".s1").onchange = radar;
+    radar();
+  }
+
   function renderTournament(root) {
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
-    titleTable(wrap); ratingsView(wrap); bracketView(wrap); groupsView(wrap); distView(wrap);
+    titleTable(wrap); ratingsView(wrap); styleView(wrap); bracketView(wrap); groupsView(wrap); distView(wrap);
     finalsView(wrap); upsetView(wrap); drawLuckView(wrap); goldenBootView(wrap);
   }
 

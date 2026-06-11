@@ -182,6 +182,9 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .dbtn { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 20px; }
 .dbtn.off { color: var(--faint); opacity: .4; } .dbtn:hover { border-color: var(--accent); }
 .dsel { flex: 1; max-width: 320px; background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 9px 12px; font-size: 15px; font-weight: 700; }
+.stylectrl { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; }
+.stylectrl label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.stylectrl .dsel { max-width: 240px; font-size: 14px; }
 .matchgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 14px; margin-top: 16px; }
 .matchcard { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow); transition: transform .15s ease, border-color .15s ease; }
 .matchcard:hover { transform: translateY(-3px); border-color: var(--accent); }
