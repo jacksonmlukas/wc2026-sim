@@ -68,7 +68,7 @@
     }
     if (fav) kpis.appendChild(kpi("Title favourite", '<span class="flagrow">' + flagImg(fav) + esc(fav) + "</span>", pct(o.champion) + " to win"));
     if (fp) kpis.appendChild(kpi("Most-likely final", esc(fp.a) + " – " + esc(fp.b), pct(fp.p) + " of runs"));
-    if (gb) kpis.appendChild(kpi("Golden Boot pick", esc(gb.player), gb.exp_goals.toFixed(1) + " xG · " + esc(gb.team)));
+    if (gb) kpis.appendChild(kpi("Golden Boot pick", esc(gb.player), gb.exp_goals.toFixed(1) + " proj. goals · " + esc(gb.team)));
     if (ev.results_backtest_brier != null) kpis.appendChild(kpi("Model credibility",
       '<span class="ku" data-v="' + ev.results_backtest_brier + '">0</span> Brier',
       (beats ? "✓ beats the " : "vs ") + ev.results_backtest_naive.toFixed(3) + " base rate", beats ? "good" : ""));
@@ -81,7 +81,7 @@
 
     var tiles = ce("div", "tiles");
     [["#/tournament", "🏆", "Tournament", "Bracket, odds, groups, outcome distribution, upsets & the Golden Boot."],
-     ["#/matches", "📋", "Matches", "Every WC2026 fixture by date with the model's prediction — plus a fully-simulated match."],
+     ["#/matches", "📋", "Matches", "Every WC2026 group-stage fixture by date with the model's prediction — plus a fully-simulated match."],
      ["#/model", "📊", "The model", "Two engines, calibration, the backtest, and the honest limits."]].forEach(function (t) {
       var a = ce("a", "tile"); a.href = t[0]; a.innerHTML = '<div class="ic">' + t[1] + '</div><h3>' + t[2] + '</h3><p>' + t[3] + '</p>'; tiles.appendChild(a);
     });
@@ -264,19 +264,19 @@
 
   function goldenBootView(wrap) {
     var gb = D.golden_boot || []; if (!gb.length) return;
-    var head = ce("div", "sec-head"); head.id = "gboot"; head.innerHTML = '<h2>Golden Boot race</h2><span class="note">projected goals · P(top scorer)</span>';
+    var head = ce("div", "sec-head"); head.id = "gboot"; head.innerHTML = '<h2>Golden Boot race</h2><span class="note">ranked by projected goals · P(top scorer)</span>';
     wrap.appendChild(head);
     var hs = D.headshots || {};
     var podium = ce("div", "gb-podium");
     gb.slice(0, 3).forEach(function (p2, i) {
       var c = ce("div", "gb-card " + (i === 0 ? "first" : ""));
-      c.innerHTML = '<img class="hs" src="' + (hs[p2.player] || "") + '" alt=""><div class="pn">' + esc(p2.player) + '</div><div class="tn faint" style="font-size:12px;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px">' + flagImg(p2.team, "sm") + esc(p2.team) + '</div><div class="xg">' + p2.exp_goals.toFixed(1) + ' xG</div><div class="faint" style="font-size:12px">' + (p2.p_top * 100).toFixed(1) + "% top scorer</div>";
+      c.innerHTML = '<img class="hs" src="' + (hs[p2.player] || "") + '" alt=""><div class="pn">' + esc(p2.player) + '</div><div class="tn faint" style="font-size:12px;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px">' + flagImg(p2.team, "sm") + esc(p2.team) + '</div><div class="xg">' + p2.exp_goals.toFixed(1) + ' proj. goals</div><div class="faint" style="font-size:12px">' + (p2.p_top * 100).toFixed(1) + "% top scorer</div>";
       podium.appendChild(c);
     });
     wrap.appendChild(podium);
-    var p = ce("div", "panel"); var top = gb[0].p_top || 1;
+    var p = ce("div", "panel");
     p.innerHTML = gb.map(function (g, i) {
-      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span><img class="hs" src="' + (hs[g.player] || "") + '" alt=""><span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + g.exp_goals.toFixed(1) + " xG · " + (g.p_top * 100).toFixed(1) + "%</span></div>";
+      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span><img class="hs" src="' + (hs[g.player] || "") + '" alt=""><span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + g.exp_goals.toFixed(1) + " proj. goals · " + (g.p_top * 100).toFixed(1) + "%</span></div>";
     }).join("");
     wrap.appendChild(p);
   }
@@ -313,14 +313,14 @@
     // shot map + win prob
     var g2 = ce("div", "grid2");
     var pm = ce("div", "panel"); pm.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Shot map <span class="faint">· size = xG · ★ = goal</span></h4>'; var pitch = ce("div"); pm.appendChild(pitch); g2.appendChild(pm);
-    var pw = ce("div", "panel"); pw.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Win / draw / loss probability</h4>'; var cw = ce("div", "chart short"); pw.appendChild(cw); g2.appendChild(pw);
+    var pw = ce("div", "panel"); pw.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Win / draw / loss probability <span class="faint">· live, by match state</span></h4>'; var cw = ce("div", "chart short"); pw.appendChild(cw); g2.appendChild(pw);
     wrap.appendChild(g2);
     drawShotMap(pitch, m);
     if (m.timeline) winProbChart(cw, m);
 
     var g3 = ce("div", "grid2");
     var px = ce("div", "panel"); px.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Cumulative xG</h4>'; var cx = ce("div", "chart short"); px.appendChild(cx); g3.appendChild(px);
-    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· Dixon–Coles</span></h4>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
+    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· Dixon–Coles · pre-match</span></h4>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
     wrap.appendChild(g3);
     if (m.timeline) xgChart(cx, m);
 
@@ -355,7 +355,7 @@
   function renderMatches(root, date) {
     var wrap = ce("div", "wrap"); root.appendChild(wrap);
     var sched = D.schedule || [], dates = scheduleDates();
-    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Matches</h2><span class="note">real WC2026 fixtures · model prediction per match · click a match for detail</span>';
+    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Matches</h2><span class="note">real WC2026 group-stage fixtures · model prediction per match · click a match for detail</span>';
     wrap.appendChild(head);
 
     // Featured (fully-simulated) match highlight.
