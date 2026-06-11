@@ -112,7 +112,8 @@ table.tbl.sticky th { position: sticky; top: 58px; z-index: 2; cursor: pointer; 
 table.tbl th.sorted::after { content: " \25be"; color: var(--accent); }
 table.tbl th.asc::after { content: " \25b4"; color: var(--accent); }
 table.tbl tbody tr:hover { background: var(--panel-2); }
-.team-cell { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+.team-cell { display: flex; align-items: center; gap: 9px; font-weight: 600; color: var(--text); text-decoration: none; }
+.team-cell:hover { color: var(--accent); }
 .flag { width: 26px; height: 18px; border-radius: 3px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0,0,0,.25); flex: none; }
 .flag.sm { width: 20px; height: 14px; }
 .pbar { position: relative; min-width: 64px; }

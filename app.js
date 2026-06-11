@@ -104,7 +104,7 @@
   }
 
   // ---- TOURNAMENT ------------------------------------------------------------------------------
-  function teamCell(t) { return '<span class="team-cell">' + flagImg(t, "sm") + esc(t) + "</span>"; }
+  function teamCell(t) { return '<a class="team-cell" href="#/team/' + encodeURIComponent(t) + '">' + flagImg(t, "sm") + esc(t) + "</a>"; }
 
   function titleTable(wrap) {
     var head = ce("div", "sec-head"); head.id = "title";
@@ -718,6 +718,85 @@
     root.appendChild(wrap);
   }
 
+  // ---- TEAM DETAIL -----------------------------------------------------------------------------
+  function groupOf(team) {
+    var gs = D.groups || {};
+    for (var g in gs) { if (gs[g].indexOf(team) >= 0) return g; }
+    return null;
+  }
+  function renderTeam(root, name) {
+    name = decodeURIComponent(name || "");
+    var wrap = ce("div", "wrap"); root.appendChild(wrap);
+    var o = odds(name);
+    if (!o || o.champion == null) { wrap.innerHTML = '<div class="sec-head"><h2>' + esc(name) + '</h2></div><div class="panel"><p class="faint">No team data. <a href="#/tournament">Back to tournament</a></p></div>'; return; }
+    var g = groupOf(name);
+    var head = ce("div", "sec-head");
+    head.innerHTML = '<a href="#/tournament" class="faint" style="font-size:13px">← tournament</a>' +
+      '<h2 style="margin-top:4px;display:flex;align-items:center;gap:10px">' + flagImg(name) + esc(name) + (g ? ' <span class="note">Group ' + g + "</span>" : "") + "</h2>";
+    wrap.appendChild(head);
+    // KPIs
+    var kpis = ce("div", "kpis");
+    function kpi(lbl, val, sub) { var k = ce("div", "kpi"); k.innerHTML = '<div class="lbl">' + lbl + '</div><div class="val">' + val + '</div><div class="sub">' + (sub || "") + "</div>"; return k; }
+    kpis.appendChild(kpi("Title odds", pct(o.champion), "expected finish: " + esc(o.expected_finish || "")));
+    kpis.appendChild(kpi("Advance", pct(o.advance), "out of the group"));
+    var mgp = (D.mean_group_points || {})[name];
+    if (mgp != null) kpis.appendChild(kpi("Mean group pts", mgp.toFixed(1), "of 9"));
+    var rt = (D.ratings || []).filter(function (r) { return r.team === name; })[0];
+    if (rt) kpis.appendChild(kpi("Elo", rt.elo.toFixed(0), "attack " + rt.attack + " · def " + rt.defense));
+    wrap.appendChild(kpis);
+
+    // Group-position distribution.
+    var gpd = (D.group_position_dist || {})[name];
+    if (gpd) {
+      var ph = ce("div", "sec-head"); ph.innerHTML = "<h2 style='font-size:18px'>Group-position probability</h2><span class='note'>where it finishes in the group</span>"; wrap.appendChild(ph);
+      var pp = ce("div", "panel"); var cn = ce("div", "chart short"); pp.appendChild(cn); wrap.appendChild(pp);
+      var labels = ["1st", "2nd", "3rd", "4th"];
+      mkChart(cn, Object.assign(axisTheme(), {
+        tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
+        xAxis: Object.assign({ type: "category", data: labels }, axisStyle()),
+        yAxis: Object.assign({ type: "value", max: 1, axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
+        series: [{ type: "bar", barWidth: 40, data: ["1", "2", "3", "4"].map(function (k, i) { return { value: gpd[k] || 0, itemStyle: { color: i < 2 ? cssVar("--good") : cssVar("--muted"), borderRadius: [4, 4, 0, 0] } }; }),
+          label: { show: true, position: "top", color: cssVar("--text"), formatter: function (p) { return (p.value * 100).toFixed(0) + "%"; } } }],
+      }));
+    }
+
+    // Expected results per group match.
+    var fixtures = (D.schedule || []).filter(function (f) { return f.home === name || f.away === name; });
+    if (fixtures.length) {
+      var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 style='font-size:18px'>Group matches</h2><span class='note'>model prediction per fixture · click for detail</span>"; wrap.appendChild(fh);
+      var grid = ce("div", "matchgrid");
+      fixtures.forEach(function (f) {
+        var idx = (D.schedule || []).indexOf(f), pr = f.pred.wdl, isHome = f.home === name;
+        var opp = isHome ? f.away : f.home, pWin = isHome ? pr.home : pr.away, pLoss = isHome ? pr.away : pr.home;
+        var a = ce("a", "matchcard"); a.href = "#/match/" + idx;
+        a.innerHTML = '<div class="mc-city">' + esc(f.date) + " · " + esc(f.city || "") + "</div>" +
+          '<div class="mc-teams"><span>vs ' + flagImg(opp, "sm") + " " + esc(opp) + "</span></div>" +
+          '<span class="wdlbar"><i class="bh" style="width:' + (pWin * 100) + '%"></i><i class="bd" style="width:' + (pr.draw * 100) + '%"></i><i class="ba" style="width:' + (pLoss * 100) + '%"></i></span>' +
+          '<div class="mc-fav faint">win ' + (pWin * 100).toFixed(0) + "% · draw " + (pr.draw * 100).toFixed(0) + "% · loss " + (pLoss * 100).toFixed(0) + "%</div>";
+        grid.appendChild(a);
+      });
+      wrap.appendChild(grid);
+    }
+
+    // Most-likely first-knockout opponents.
+    var opps = (D.r32_opponents || {})[name];
+    if (opps && opps.length) {
+      var oh = ce("div", "sec-head"); oh.innerHTML = "<h2 style='font-size:18px'>Most-likely R32 opponent</h2><span class='note'>first knockout, conditional on qualifying (official slot map)</span>"; wrap.appendChild(oh);
+      var op = ce("div", "panel");
+      op.innerHTML = opps.map(function (r) { return '<div class="gb-row">' + teamCell(r.team) + '<span class="v">' + (r.p * 100).toFixed(0) + "%</span></div>"; }).join("");
+      wrap.appendChild(op);
+    }
+
+    // Expected top scorers (from the Golden Boot board).
+    var scorers = (D.golden_boot || []).filter(function (p) { return p.team === name; });
+    if (scorers.length) {
+      var sh = ce("div", "sec-head"); sh.innerHTML = "<h2 style='font-size:18px'>Expected top scorers</h2>"; wrap.appendChild(sh);
+      var sp = ce("div", "panel");
+      sp.innerHTML = scorers.map(function (p) { return '<div class="gb-row"><span class="who">' + esc(p.player) + '</span><span class="v">' + p.exp_goals.toFixed(1) + " proj. goals · " + (p.p_top * 100).toFixed(1) + "% Golden Boot</span></div>"; }).join("");
+      wrap.appendChild(sp);
+    }
+  }
+
   // ---- router ----------------------------------------------------------------------------------
   var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout };
   function route() {
@@ -728,6 +807,7 @@
     var navKey;
     if (name === "matches") { renderMatches(view, parts[1]); navKey = "matches"; }
     else if (name === "match") { renderMatchDetail(view, parts[1]); navKey = "matches"; }
+    else if (name === "team") { renderTeam(view, parts.slice(1).join("/")); navKey = "tournament"; }
     else { if (!ROUTES[name]) name = "home"; ROUTES[name](view); navKey = name; }
     document.querySelectorAll("nav.tabs a").forEach(function (a) { a.classList.toggle("active", a.dataset.route === navKey); });
     window.scrollTo(0, 0);
