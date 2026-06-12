@@ -29,10 +29,23 @@
   }
   function odds(t) { return (D.odds || {})[t] || {}; }
   function disposeCharts() { charts.forEach(function (c) { try { c.dispose(); } catch (e) {} }); charts = []; }
+  // U1.6: defer expensive work until `node` nears the viewport (build once, then unobserve). Builds
+  // eagerly if reduced-motion or no observer. In-view nodes fire immediately, so first paint is snappy.
+  function lazyChart(node, build) {
+    if (REDUCED || !("IntersectionObserver" in window)) { build(); return; }
+    var done = false;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting && !done) { done = true; build(); io.disconnect(); } });
+    }, { rootMargin: "200px" });
+    io.observe(node);
+    charts.push({ dispose: function () { io.disconnect(); } });  // cleaned up on route change
+  }
   function mkChart(node, option) {
-    var c = window.echarts.init(node, null, { renderer: "canvas" });
-    c.setOption(option); charts.push(c);
-    return c;
+    // Build the ECharts instance lazily (the canvas init + setOption is the costly part).
+    lazyChart(node, function () {
+      var c = window.echarts.init(node, null, { renderer: "canvas" });
+      c.setOption(option); charts.push(c);
+    });
   }
   function axisTheme() {
     return {
@@ -53,6 +66,44 @@
       node.textContent = (target * (1 - Math.pow(1 - k, 3))).toFixed(dec || 0) + (suffix || "");
       if (k < 1) requestAnimationFrame(step); }
     requestAnimationFrame(step);
+  }
+
+  // ---- sub-navigation + scroll-spy (U1.1) ------------------------------------------------------
+  // Sticky in-page sub-nav. `items` = [{href, label, key}]. In TAB mode (opts.active set) the link
+  // whose key === opts.active is highlighted (sub-route switcher). In SPY mode (opts.spy = ids the
+  // links point at, in order) an IntersectionObserver highlights the link of the section in view.
+  function sectionNav(items, opts) {
+    opts = opts || {};
+    var nav = ce("nav", "subnav"); nav.setAttribute("aria-label", "In-page sections");
+    nav.innerHTML = items.map(function (it) {
+      var on = opts.active && it.key === opts.active;
+      return '<a href="' + it.href + '" data-key="' + esc(it.key || "") + '"' + (on ? ' class="active" aria-current="true"' : "") + ">" + esc(it.label) + "</a>";
+    }).join("");
+    if (opts.scroll) {  // in-page anchors: scroll without letting the hash router hijack the click
+      nav.querySelectorAll("a").forEach(function (a) {
+        a.addEventListener("click", function (e) {
+          var el = document.getElementById(a.dataset.key);
+          if (el) { e.preventDefault(); el.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" }); el.focus({ preventScroll: true }); }
+        });
+      });
+    }
+    if (opts.spy && opts.spy.length && "IntersectionObserver" in window && !REDUCED) {
+      // defer until the sections exist in the DOM and have layout.
+      requestAnimationFrame(function () {
+        var links = {}; nav.querySelectorAll("a").forEach(function (a) { links[a.dataset.key] = a; });
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (en.isIntersecting) {
+              nav.querySelectorAll("a").forEach(function (a) { a.classList.remove("active"); a.removeAttribute("aria-current"); });
+              var l = links[en.target.id]; if (l) { l.classList.add("active"); l.setAttribute("aria-current", "true"); }
+            }
+          });
+        }, { rootMargin: "-58px 0px -70% 0px" });
+        opts.spy.forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+        charts.push({ dispose: function () { io.disconnect(); } });  // cleaned up on route change
+      });
+    }
+    return nav;
   }
 
   // ---- HOME ------------------------------------------------------------------------------------
@@ -512,12 +563,51 @@
     draw();
   }
 
-  function renderTournament(root) {
+  // U1.4: lead the Odds sub-view with 3–5 headline numbers (the Overview KPI pattern).
+  function tournamentKpis(wrap) {
+    var os = D.odds_sorted || [], fav = os[0]; if (!fav) return;
+    var fp = (D.final_pairs || [])[0], up = (D.upset_risk || [])[0], dh = (D.dark_horses || [])[0];
+    var kpis = ce("div", "kpis");
+    function kpi(lbl, valHTML, sub) { var k = ce("div", "kpi"); k.innerHTML = '<div class="lbl">' + lbl + '</div><div class="val">' + valHTML + '</div><div class="sub">' + (sub || "") + "</div>"; return k; }
+    kpis.appendChild(kpi("Favourite", '<span class="flagrow">' + flagImg(fav) + esc(fav) + "</span>", pct(odds(fav).champion) + " to win"));
+    if (fp) kpis.appendChild(kpi("Most-likely final", esc(fp.a) + " – " + esc(fp.b), pct(fp.p) + " of runs"));
+    if (up) kpis.appendChild(kpi("Biggest upset risk", esc(up.team), (up.group_exit * 100).toFixed(0) + "% group exit"));
+    if (dh) kpis.appendChild(kpi("Top dark-horse", esc(dh.team), (dh.qf * 100).toFixed(0) + "% reach QF"));
+    wrap.appendChild(kpis);
+  }
+  function contextIntro(wrap) {
+    var p = ce("div", "sec-sub"); p.textContent = "Secondary context behind the odds — each team's data-derived play-style, its heat/travel/altitude burden, and a what-if head-to-head over any pairing. Expand a panel to dig in.";
+    wrap.appendChild(p);
+  }
+  // U1.4: progressive disclosure — wrap a heavy panel builder in a collapsed <details> expander.
+  function expander(wrap, label, fn, open) {
+    var d = ce("details", "exp"); if (open) d.setAttribute("open", "");
+    var s = ce("summary"); s.textContent = label; d.appendChild(s);
+    var body = ce("div", "exp-body"); d.appendChild(body); wrap.appendChild(d);
+    fn(body);
+  }
+  function styleViewX(w) { expander(w, "Play-style profiles", styleView, true); }
+  function conditionsViewX(w) { expander(w, "Conditions & logistics", conditionsView); }
+  function headToHeadViewX(w) { expander(w, "Head-to-head explorer", headToHeadView); }
+
+  // U1.2: the 14 Tournament panels grouped into ≤5-panel sub-views (one question per view).
+  var TOUR_GROUPS = [
+    { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, ratingsView] },
+    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
+    { key: "distributions", label: "Distributions", panels: [distView, finalsView, upsetView, drawLuckView] },
+    { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, playerPropsView] },
+    { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
+  ];
+  function renderTournament(root, sub) {
+    var keys = TOUR_GROUPS.map(function (g) { return g.key; });
+    if (!sub || keys.indexOf(sub) < 0) sub = "odds";
+    root.appendChild(sectionNav(TOUR_GROUPS.map(function (g) {
+      return { href: "#/tournament/" + g.key, label: g.label, key: g.key };
+    }), { active: sub }));
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
-    titleTable(wrap); ratingsView(wrap); headToHeadView(wrap); styleView(wrap); conditionsView(wrap); bracketView(wrap);
-    groupsView(wrap); distView(wrap); finalsView(wrap); upsetView(wrap); drawLuckView(wrap);
-    goldenBootView(wrap); goldenGloveView(wrap); playerPropsView(wrap);
+    var grp = TOUR_GROUPS[keys.indexOf(sub)];
+    grp.panels.forEach(function (fn) { fn(wrap); });
   }
 
   // ---- MATCH -----------------------------------------------------------------------------------
@@ -725,7 +815,7 @@
   function trackRecordView(wrap) {
     var tr = D.track_record || {}; if (!tr.baseline) return;
     var b = tr.baseline;
-    var h = ce("div", "sec-head"); h.innerHTML = "<h2 style='font-size:18px'>Track record vs reality</h2><span class='note'>the immutable pre-tournament baseline, graded as results land</span>";
+    var h = ce("div", "sec-head"); h.id = "m-track"; h.tabIndex = -1; h.innerHTML = "<h2 class='sec-h2'>Track record vs reality</h2><span class='note'>the immutable pre-tournament baseline, graded as results land</span>";
     wrap.appendChild(h);
     var p = ce("div", "panel");
     if (tr.status === "awaiting" || !tr.scored) {
@@ -751,10 +841,18 @@
   function renderModel(root) {
     var ev = D.eval || {}, wrap = ce("div", "wrap");
     root.appendChild(wrap);
-    var head = ce("div", "sec-head"); head.innerHTML = '<h2>The model</h2><span class="note">two engines · how it scores · the honest limits</span>';
+    var head = ce("div", "sec-head"); head.innerHTML = '<h2>The model</h2><span class="note">two engines · how it scores · the forecast over time · the honest limits</span>';
     wrap.appendChild(head);
+    // U1.3: Model sub-nav (the standalone Time-machine tab was folded in here).
+    wrap.appendChild(sectionNav([
+      { href: "#m-track", label: "Track record", key: "m-track" },
+      { href: "#m-history", label: "Forecast over time", key: "m-history" },
+      { href: "#m-engines", label: "Engines & credibility", key: "m-engines" },
+      { href: "#m-realism", label: "Realism", key: "m-realism" },
+    ], { scroll: true, spy: ["m-track", "m-history", "m-engines", "m-realism"] }));
     trackRecordView(wrap);
-    var intro = ce("div", "panel prose");
+    historySection(wrap);
+    var intro = ce("div", "panel prose"); intro.id = "m-engines"; intro.tabIndex = -1;
     intro.innerHTML = "<p><b>Two decoupled engines.</b> A fast <b>Prediction Engine</b> (Elo + Dixon–Coles bivariate Poisson) runs the whole-tournament Monte Carlo in milliseconds per match — that's what every odds, bracket and distribution on this site comes from. A generative <b>Realism Engine</b> (an events-as-language transformer over SPADL tokens) writes a single match event-by-event into a believable box score. They're decoupled on purpose: a transformer match is ~3,400 forward passes, a tournament is billions — so the transformer informs prediction by <i>distillation</i>, never inside the Monte Carlo loop.</p>";
     wrap.appendChild(intro);
 
@@ -764,12 +862,12 @@
     if (ev.holdout_brier != null) cards.appendChild(card(ev.holdout_brier.toFixed(3), "Held-out Brier (" + ev.holdout_n + " matches)", "vs " + ev.holdout_naive.toFixed(3) + " naive", ev.holdout_brier < ev.holdout_naive));
     if (ev.backtest_brier != null) cards.appendChild(card(ev.backtest_brier.toFixed(3), "Backtest (" + ev.backtest_target + ")", "vs " + ev.backtest_naive.toFixed(3) + " naive", ev.backtest_brier < ev.backtest_naive));
     cards.appendChild(card((D.meta && D.meta.n_sims ? (+D.meta.n_sims).toLocaleString() : "—"), "Monte Carlo runs", "Elo + Dixon–Coles"));
-    var ch = ce("div", "sec-head"); ch.innerHTML = "<h2 style='font-size:18px'>Prediction credibility</h2>"; wrap.appendChild(ch);
+    var ch = ce("div", "sec-head"); ch.innerHTML = "<h2 class='sec-h2'>Prediction credibility</h2>"; wrap.appendChild(ch);
     var cp = ce("div", "panel"); cp.appendChild(cards); wrap.appendChild(cp);
 
     var rm = (D.model && D.model.realism_metrics) || [];
     if (rm.length) {
-      var rh = ce("div", "sec-head"); rh.innerHTML = "<h2 style='font-size:18px'>Realism — generated vs real</h2><span class='note'>held-out fold · 0.5σ tolerance · KS distribution test</span>"; wrap.appendChild(rh);
+      var rh = ce("div", "sec-head"); rh.id = "m-realism"; rh.tabIndex = -1; rh.innerHTML = "<h2 class='sec-h2'>Realism — generated vs real</h2><span class='note'>held-out fold · 0.5σ tolerance · KS distribution test</span>"; wrap.appendChild(rh);
       var rp = ce("div", "panel"); rp.style.overflowX = "auto";
       rp.innerHTML = '<table class="tbl metric-tbl"><thead><tr><th>Metric</th><th>Sim</th><th>Real</th><th>Tol (0.5σ)</th><th>KS p</th><th>Pass</th></tr></thead><tbody>' +
         rm.map(function (r) { return "<tr><td>" + esc(r.metric) + "</td><td>" + r.sim + "</td><td>" + r.real + "</td><td>±" + r.tol + "</td><td>" + r.ks_p.toFixed(3) + "</td><td><span class='" + (r.pass ? "ok" : "no") + "'>" + (r.pass ? "✓" : "✕") + "</span></td></tr>"; }).join("") + "</tbody></table>";
@@ -777,7 +875,7 @@
     }
     var figs = (D.model && D.model.figures) || [];
     if (figs.length) {
-      var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 style='font-size:18px'>Calibration & realism diagrams</h2><span class='note'>reliability (predicted vs observed) · generated-vs-real distributions</span>"; wrap.appendChild(fh);
+      var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 class='sec-h2'>Calibration & realism diagrams</h2><span class='note'>reliability (predicted vs observed) · generated-vs-real distributions</span>"; wrap.appendChild(fh);
       var fg = ce("div", "grid2");
       figs.forEach(function (f) { var p = ce("div", "panel"); p.innerHTML = '<img src="' + f + '" alt="' + f + '" style="width:100%;border-radius:8px;background:#fff">'; fg.appendChild(p); });
       wrap.appendChild(fg);
@@ -833,7 +931,7 @@
     // Group-position distribution.
     var gpd = (D.group_position_dist || {})[name];
     if (gpd) {
-      var ph = ce("div", "sec-head"); ph.innerHTML = "<h2 style='font-size:18px'>Group-position probability</h2><span class='note'>where it finishes in the group</span>"; wrap.appendChild(ph);
+      var ph = ce("div", "sec-head"); ph.innerHTML = "<h2 class='sec-h2'>Group-position probability</h2><span class='note'>where it finishes in the group</span>"; wrap.appendChild(ph);
       var pp = ce("div", "panel"); var cn = ce("div", "chart short"); pp.appendChild(cn); wrap.appendChild(pp);
       var labels = ["1st", "2nd", "3rd", "4th"];
       mkChart(cn, Object.assign(axisTheme(), {
@@ -848,7 +946,7 @@
     // Expected results per group match.
     var fixtures = (D.schedule || []).filter(function (f) { return f.home === name || f.away === name; });
     if (fixtures.length) {
-      var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 style='font-size:18px'>Group matches</h2><span class='note'>model prediction per fixture · click for detail</span>"; wrap.appendChild(fh);
+      var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 class='sec-h2'>Group matches</h2><span class='note'>model prediction per fixture · click for detail</span>"; wrap.appendChild(fh);
       var grid = ce("div", "matchgrid");
       fixtures.forEach(function (f) {
         var idx = (D.schedule || []).indexOf(f), pr = f.pred.wdl, isHome = f.home === name;
@@ -866,7 +964,7 @@
     // Most-likely first-knockout opponents.
     var opps = (D.r32_opponents || {})[name];
     if (opps && opps.length) {
-      var oh = ce("div", "sec-head"); oh.innerHTML = "<h2 style='font-size:18px'>Most-likely R32 opponent</h2><span class='note'>first knockout, conditional on qualifying (official slot map)</span>"; wrap.appendChild(oh);
+      var oh = ce("div", "sec-head"); oh.innerHTML = "<h2 class='sec-h2'>Most-likely R32 opponent</h2><span class='note'>first knockout, conditional on qualifying (official slot map)</span>"; wrap.appendChild(oh);
       var op = ce("div", "panel");
       op.innerHTML = opps.map(function (r) { return '<div class="gb-row">' + teamCell(r.team) + '<span class="v">' + (r.p * 100).toFixed(0) + "%</span></div>"; }).join("");
       wrap.appendChild(op);
@@ -875,7 +973,7 @@
     // Expected top scorers (from the Golden Boot board).
     var scorers = (D.golden_boot || []).filter(function (p) { return p.team === name; });
     if (scorers.length) {
-      var sh = ce("div", "sec-head"); sh.innerHTML = "<h2 style='font-size:18px'>Expected top scorers</h2>"; wrap.appendChild(sh);
+      var sh = ce("div", "sec-head"); sh.innerHTML = "<h2 class='sec-h2'>Expected top scorers</h2>"; wrap.appendChild(sh);
       var sp = ce("div", "panel");
       sp.innerHTML = scorers.map(function (p) { return '<div class="gb-row"><span class="who">' + esc(p.player) + '</span><span class="v">' + p.exp_goals.toFixed(1) + " proj. goals · " + (p.p_top * 100).toFixed(1) + "% Golden Boot</span></div>"; }).join("");
       wrap.appendChild(sp);
@@ -932,10 +1030,11 @@
   }
 
   // ---- HISTORY (prediction time-machine) -------------------------------------------------------
-  function renderHistory(root) {
+  // U1.3: rendered as a section inside the Model page (the standalone Time-machine tab was folded in).
+  function historySection(wrap) {
     var h = D.history || {}; var series = h.series || [], tracked = h.tracked || [];
-    var wrap = ce("div", "wrap"); root.appendChild(wrap);
-    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Prediction time-machine</h2><span class="note">how the forecast has moved from the pre-tournament baseline through each matchday</span>';
+    var head = ce("div", "sec-head"); head.id = "m-history";
+    head.innerHTML = "<h2 class='sec-h2'>Prediction time-machine</h2><span class=\"note\">how the forecast has moved from the pre-tournament baseline through each matchday</span>";
     wrap.appendChild(head);
     if (series.length <= 1) {
       wrap.appendChild(ce("div", "panel", '<p class="faint">Only the pre-tournament baseline exists so far. As matchdays are played, <code>make update</code> freezes one immutable snapshot per day and this chart becomes the "stock ticker" of the tournament — each team\'s title odds over time, biggest movers, and any past day side-by-side with reality.</p>'));
@@ -973,7 +1072,7 @@
   }
 
   // ---- router ----------------------------------------------------------------------------------
-  var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout, history: renderHistory };
+  var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout };
   function route() {
     var parts = (location.hash.replace(/^#\/?/, "") || "home").split("/");
     var name = parts[0];
@@ -984,6 +1083,11 @@
     else if (name === "match") { renderMatchDetail(view, parts[1]); navKey = "matches"; }
     else if (name === "team") { renderTeam(view, parts.slice(1).join("/")); navKey = "tournament"; }
     else if (name === "group") { renderGroup(view, parts[1]); navKey = "tournament"; }
+    else if (name === "tournament") { renderTournament(view, parts[1]); navKey = "tournament"; }
+    else if (name === "history") {  // U1.3: folded into Model; keep the deep-link working
+      renderModel(view); navKey = "model";
+      requestAnimationFrame(function () { var el = document.getElementById("m-history"); if (el) el.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" }); });
+    }
     else { if (!ROUTES[name]) name = "home"; ROUTES[name](view); navKey = name; }
     document.querySelectorAll("nav.tabs a").forEach(function (a) { a.classList.toggle("active", a.dataset.route === navKey); });
     window.scrollTo(0, 0);
