@@ -469,10 +469,53 @@
     wrap.appendChild(note);
   }
 
+  // Dixon–Coles scoreline distribution between two Elo ratings (standard Poisson path + DC low-score
+  // correction; the tournament MC uses φ=1.2, so this explorer is labelled an approximation).
+  function dcMatrix(eloH, eloA) {
+    var dc = D.dc_params || {}; var total = dc.total || 2.7, sup100 = dc.sup_per_100 || 0.38, rho = dc.rho || -0.08;
+    var sup = sup100 * (eloH - eloA) / 100;
+    var lh = Math.max((total + sup) / 2, 0.15), la = Math.max((total - sup) / 2, 0.15), N = 8;
+    function pois(k, l) { var p = Math.exp(-l); for (var i = 1; i <= k; i++) p *= l / i; return p; }
+    var hp = [], ap = [], i, j;
+    for (i = 0; i <= N; i++) { hp.push(pois(i, lh)); ap.push(pois(i, la)); }
+    var m = [], s = 0;
+    for (i = 0; i <= N; i++) { m[i] = []; for (j = 0; j <= N; j++) m[i][j] = hp[i] * ap[j]; }
+    m[0][0] *= 1 - lh * la * rho; m[0][1] *= 1 + lh * rho; m[1][0] *= 1 + la * rho; m[1][1] *= 1 - rho;
+    for (i = 0; i <= N; i++) for (j = 0; j <= N; j++) { m[i][j] = Math.max(0, m[i][j]); s += m[i][j]; }
+    for (i = 0; i <= N; i++) for (j = 0; j <= N; j++) m[i][j] /= s;
+    var ph = 0, pd = 0, pa = 0, tops = [];
+    for (i = 0; i <= N; i++) for (j = 0; j <= N; j++) { if (i > j) ph += m[i][j]; else if (i === j) pd += m[i][j]; else pa += m[i][j]; tops.push({ home: i, away: j, p: m[i][j] }); }
+    tops.sort(function (a, b) { return b.p - a.p; });
+    return { matrix: m, wdl: { home: ph, draw: pd, away: pa }, top_scorelines: tops.slice(0, 6), lh: lh, la: la };
+  }
+  function headToHeadView(wrap) {
+    var rs = D.ratings || []; if (!rs.length || !D.dc_params) return;
+    var elo = {}; rs.forEach(function (r) { elo[r.team] = r.elo; });
+    var teams = rs.map(function (r) { return r.team; });
+    var head = ce("div", "sec-head"); head.id = "h2h";
+    head.innerHTML = '<h2>Head-to-head explorer</h2><span class="note">pick any two of the 48 — neutral-venue Dixon–Coles scoreline (φ=1 approximation)</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel");
+    var ctrl = ce("div", "stylectrl");
+    function opts(sel) { return teams.map(function (t) { return '<option' + (t === sel ? " selected" : "") + ">" + esc(t) + "</option>"; }).join(""); }
+    ctrl.innerHTML = '<label>Team A <select class="dsel a">' + opts(teams[0]) + '</select></label><label>Team B <select class="dsel b">' + opts(teams[1]) + "</select></label>";
+    p.appendChild(ctrl);
+    var out = ce("div"); p.appendChild(out); wrap.appendChild(p);
+    function draw() {
+      var a = ctrl.querySelector(".a").value, b = ctrl.querySelector(".b").value;
+      if (a === b) { out.innerHTML = '<p class="faint">Pick two different teams.</p>'; return; }
+      var r = dcMatrix(elo[a], elo[b]);
+      out.innerHTML = '<div class="match-head" style="padding:8px 0"><div class="side">' + flagImg(a) + '<span class="nm">' + esc(a) + '</span></div><div class="score" style="font-size:20px">' + (r.wdl.home * 100).toFixed(0) + "% · " + (r.wdl.draw * 100).toFixed(0) + "% · " + (r.wdl.away * 100).toFixed(0) + '%<div class="faint" style="font-size:12px;font-weight:500">win · draw · win · xG ' + r.lh.toFixed(2) + "–" + r.la.toFixed(2) + '</div></div><div class="side">' + flagImg(b) + '<span class="nm">' + esc(b) + "</span></div></div>";
+      out.appendChild(scoreDistEl(r, a, b));
+    }
+    ctrl.querySelector(".a").onchange = draw; ctrl.querySelector(".b").onchange = draw;
+    draw();
+  }
+
   function renderTournament(root) {
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
-    titleTable(wrap); ratingsView(wrap); styleView(wrap); conditionsView(wrap); bracketView(wrap);
+    titleTable(wrap); ratingsView(wrap); headToHeadView(wrap); styleView(wrap); conditionsView(wrap); bracketView(wrap);
     groupsView(wrap); distView(wrap); finalsView(wrap); upsetView(wrap); drawLuckView(wrap);
     goldenBootView(wrap); goldenGloveView(wrap); playerPropsView(wrap);
   }
@@ -540,6 +583,12 @@
   function wdlBar(p) {
     return '<span class="wdlbar"><i class="bh" style="width:' + (p.home * 100) + '%"></i><i class="bd" style="width:' + (p.draw * 100) + '%"></i><i class="ba" style="width:' + (p.away * 100) + '%"></i></span>';
   }
+  // Confidence tier from the W/D/L spread (Phase M): a scannable matchday label.
+  function tierChip(p) {
+    var mx = Math.max(p.home, p.away), draw = p.draw;
+    var t = mx >= 0.62 ? ["Lock", "lk"] : mx >= 0.5 ? ["Lean", "ln"] : draw >= 0.3 ? ["Tight", "ti"] : ["Coin-flip", "cf"];
+    return '<span class="tier ' + t[1] + '">' + t[0] + "</span>";
+  }
 
   function renderMatches(root, date) {
     var wrap = ce("div", "wrap"); root.appendChild(wrap);
@@ -573,7 +622,7 @@
       var f = o.f, p = f.pred.wdl, fav = p.home >= p.away ? f.home : f.away, favp = Math.max(p.home, p.away);
       var a = ce("a", "matchcard"); a.href = "#/match/" + o.i;
       a.innerHTML =
-        '<div class="mc-city">' + esc(f.city || "") + "</div>" +
+        '<div class="mc-city">' + esc(f.city || "") + tierChip(p) + "</div>" +
         '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + "</span><span class='faint'>v</span><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
         wdlBar(p) +
         '<div class="mc-fav faint">' + esc(fav) + " " + (favp * 100).toFixed(0) + "% · xG " + f.pred.lambda_home.toFixed(1) + "–" + f.pred.lambda_away.toFixed(1) + "</div>";

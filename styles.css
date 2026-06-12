@@ -201,7 +201,12 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .matchgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 14px; margin-top: 16px; }
 .matchcard { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow); transition: transform .15s ease, border-color .15s ease; }
 .matchcard:hover { transform: translateY(-3px); border-color: var(--accent); }
-.mc-city { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); }
+.mc-city { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); display: flex; justify-content: space-between; align-items: center; }
+.tier { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; text-transform: none; letter-spacing: 0; }
+.tier.lk { background: rgba(46,160,67,.18); color: #2ea043; }
+.tier.ln { background: rgba(56,139,253,.18); color: #388bfd; }
+.tier.ti { background: rgba(187,128,9,.18); color: #d29922; }
+.tier.cf { background: rgba(139,148,158,.18); color: var(--muted); }
 .mc-teams { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 700; margin: 8px 0 11px; font-size: 14.5px; }
 .mc-teams span { display: flex; align-items: center; gap: 7px; }
 .wdlbar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; background: var(--line); }
