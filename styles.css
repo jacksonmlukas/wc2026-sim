@@ -185,6 +185,7 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .dbtn { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 20px; }
 .dbtn.off { color: var(--faint); opacity: .4; } .dbtn:hover { border-color: var(--accent); }
 .dsel { flex: 1; max-width: 320px; background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 9px 12px; font-size: 15px; font-weight: 700; }
+.asof-chip { display: inline-block; margin-top: 14px; padding: 5px 12px; border-radius: 999px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); font-size: 13px; font-weight: 600; }
 .grouplink { color: var(--accent); text-decoration: none; }
 .grouplink:hover { text-decoration: underline; }
 .posgrid { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 4px; align-items: center; }

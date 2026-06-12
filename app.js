@@ -67,7 +67,9 @@
       '<p class="lede">A two-engine soccer simulator — a fast Elo + Dixon–Coles model runs the ' +
       (D.meta && D.meta.n_sims ? D.meta.n_sims.toLocaleString() : "") +
       '-run tournament Monte Carlo, and an events-as-language transformer generates a believable ' +
-      'single match, event by event.</p></div>';
+      'single match, event by event.</p>' +
+      ((D.as_of && D.as_of.status) ? '<div class="asof-chip">📅 ' + esc(D.as_of.status) + '</div>' : '') +
+      '</div>';
     root.appendChild(hero);
 
     var wrap = ce("div", "wrap");
