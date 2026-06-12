@@ -565,7 +565,7 @@
     }).join("");
     wrap.appendChild(p);
     var note = ce("p", "faint"); note.style.fontSize = "12px";
-    note.textContent = "Keeper = each nation’s most-capped goalkeeper in the CC0 Transfermarkt squad (basis tm). A full P(win) Golden Glove and a best-young-player race are documented as gated in GATED_ITEMS.md.";
+    note.textContent = "Keeper = each nation’s most-capped goalkeeper in the CC0 Transfermarkt squad (basis tm). A full P(win) Golden Glove remains documented as gated in GATED_ITEMS.md.";
     wrap.appendChild(note);
   }
   // L-B7: Golden Ball — best player by VAEP per 90 (credits defenders/mids, not just goals).
@@ -582,6 +582,22 @@
     wrap.appendChild(p);
     var note = ce("p", "faint"); note.style.fontSize = "12px";
     note.textContent = "VAEP (socceraction, learned from the open SPADL corpus — basis vaep) credits every on-ball action, so the board rewards playmakers/defenders, not just scorers. The data-poor 8 have no VAEP number (omitted, not estimated).";
+    wrap.appendChild(note);
+  }
+
+  function youngPlayerView(wrap) {
+    var yp = (D.awards || {}).young_player || {}; var b = yp.board || []; if (!b.length) return;
+    var head = ce("div", "sec-head"); head.id = "young";
+    head.innerHTML = '<h2>🌟 Best Young Player</h2><span class="note">born 2005 or later (FIFA U-21 rule) — ranked by VAEP per 90</span>';
+    wrap.appendChild(head);
+    var mx = b[0].vaep_p90 || 1;
+    var p = ce("div", "panel");
+    p.innerHTML = b.map(function (r, i) {
+      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span><span class="who"><span class="pn">' + esc(r.player) + ' <span class="faint" style="font-weight:500">· ' + r.age + '</span></span><span class="tn">' + flagImg(r.team, "sm") + esc(r.team) + ' · ' + esc(r.club) + '</span></span><span class="v"><span class="barcell" style="width:' + (r.vaep_p90 / mx * 46) + 'px"></span> ' + r.vaep_p90.toFixed(2) + " VAEP/90 · " + (r.p_top * 100).toFixed(0) + "%</span></div>";
+    }).join("");
+    wrap.appendChild(p);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Squads (26×48) from Wikipedia “2026 FIFA World Cup squads” (CC BY-SA 4.0); " + yp.n_eligible + " players born ≥2005, " + yp.n_with_vaep + " with in-repo event coverage (the rest have no VAEP number — listed nowhere rather than estimated).";
     wrap.appendChild(note);
   }
 
@@ -660,7 +676,7 @@
     { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, ratingsView] },
     { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, upsetView, drawLuckView] },
-    { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, playerPropsView] },
+    { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
   ];
   function renderTournament(root, sub) {
