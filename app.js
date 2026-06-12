@@ -656,6 +656,22 @@
     if (dh) kpis.appendChild(kpi("Top dark-horse", esc(dh.team), (dh.qf * 100).toFixed(0) + "% reach QF"));
     wrap.appendChild(kpis);
   }
+  // L-B9: model-vs-market overlay — only renders when an Odds-API key produced odds_anchor.json.
+  function marketAnchorView(wrap) {
+    var a = D.odds_anchor; if (!a || !a.overlay || !a.overlay.length) return;
+    var head = ce("div", "sec-head"); head.id = "market";
+    head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown, model ordering preserved</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel");
+    p.innerHTML = '<table class="chart-table"><thead><tr><th>Team</th><th>Model</th><th>Market</th><th>Anchored</th></tr></thead><tbody>' +
+      a.overlay.slice(0, 12).map(function (r) {
+        return '<tr><td>' + flagImg(r.team, "sm") + esc(r.team) + '</td><td>' + (r.model * 100).toFixed(1) + '%</td><td>' + (r.market * 100).toFixed(1) + '%</td><td>' + (r.anchored * 100).toFixed(1) + '%</td></tr>';
+      }).join("") + '</tbody></table>';
+    wrap.appendChild(p);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); de-vigged anchor only (no raw price mirror, no bookmaker named). Source: The Odds API.";
+    wrap.appendChild(note);
+  }
   function contextIntro(wrap) {
     var p = ce("div", "sec-sub"); p.textContent = "Secondary context behind the odds — each team's data-derived play-style, its heat/travel/altitude burden, and a what-if head-to-head over any pairing. Expand a panel to dig in.";
     wrap.appendChild(p);
@@ -673,7 +689,7 @@
 
   // U1.2: the 14 Tournament panels grouped into ≤5-panel sub-views (one question per view).
   var TOUR_GROUPS = [
-    { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, ratingsView] },
+    { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, marketAnchorView, ratingsView] },
     { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, upsetView, drawLuckView] },
     { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
