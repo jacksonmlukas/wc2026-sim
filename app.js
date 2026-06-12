@@ -47,6 +47,38 @@
       c.setOption(option); charts.push(c);
     });
   }
+  // U2.1: give a (canvas) chart a text alternative — role/aria-label on the node + a coded data
+  // table (caption + th scope) revealed by a "Show table / Show chart" toggle. `rows[i][0]` is the
+  // row header. Appends the toggle + table to `panel`; the table is sr-only until shown.
+  function attachChartTable(panel, node, caption, headers, rows) {
+    node.setAttribute("role", "img"); node.setAttribute("aria-label", caption);
+    var btn = ce("button", "tbl-toggle"); btn.type = "button"; btn.textContent = "Show table";
+    btn.setAttribute("aria-expanded", "false");
+    var tbl = ce("table", "chart-table sr-only");
+    tbl.innerHTML = "<caption>" + esc(caption) + "</caption><thead><tr>" +
+      headers.map(function (h) { return '<th scope="col">' + esc(h) + "</th>"; }).join("") +
+      "</tr></thead><tbody>" + rows.map(function (r) {
+        return "<tr>" + r.map(function (c, i) { return i === 0 ? '<th scope="row">' + esc(c) + "</th>" : "<td>" + esc(c) + "</td>"; }).join("") + "</tr>";
+      }).join("") + "</tbody>";
+    btn.onclick = function () {
+      var showing = tbl.classList.toggle("sr-only") === false;
+      node.style.display = showing ? "none" : "";
+      btn.textContent = showing ? "Show chart" : "Show table";
+      btn.setAttribute("aria-expanded", showing ? "true" : "false");
+    };
+    panel.appendChild(btn); panel.appendChild(tbl);
+  }
+  // U2.2: keyboard-operable sortable header row — real <button>s (Enter/Space sort) + aria-sort on
+  // the <th>. Pair with `wireSort(tbl, onSort)` which delegates clicks from the `.th-sort` buttons.
+  function sortHead(cols, st) {
+    return "<thead><tr>" + cols.map(function (c) {
+      var active = c[0] === st.key, sort = active ? (st.dir < 0 ? "descending" : "ascending") : "none";
+      return '<th aria-sort="' + sort + '" class="' + (active ? (st.dir < 0 ? "sorted" : "asc") : "") + '"><button type="button" class="th-sort" data-k="' + c[0] + '">' + esc(c[1]) + "</button></th>";
+    }).join("") + "</tr></thead>";
+  }
+  function wireSort(tbl, onSort) {
+    tbl.querySelectorAll(".th-sort").forEach(function (b) { b.onclick = function () { onSort(b.dataset.k); }; });
+  }
   function axisTheme() {
     return {
       textStyle: { fontFamily: cssVar("--font") },
@@ -58,6 +90,10 @@
   function axisStyle() {
     return { axisLine: { lineStyle: { color: cssVar("--line-2") } }, axisLabel: { color: cssVar("--muted") },
       splitLine: { lineStyle: { color: cssVar("--line") } }, axisTick: { show: false } };
+  }
+  // U2.3: Wong colorblind-safe categorical order for multi-series charts.
+  function CB_PALETTE() {
+    return ["--cb-blue", "--cb-orange", "--cb-green", "--cb-purple", "--cb-vermillion", "--cb-skyblue", "--cb-yellow", "--cb-grey"].map(cssVar);
   }
   function countUp(node, target, suffix, dec) {
     if (REDUCED) { node.textContent = target.toFixed(dec || 0) + (suffix || ""); return; }
@@ -163,6 +199,8 @@
         itemStyle: { color: cssVar("--accent"), borderRadius: [0, 5, 5, 0] },
         label: { show: true, position: "right", color: cssVar("--text"), formatter: function (p2) { return (p2.value * 100).toFixed(1) + "%"; } } }],
     }));
+    attachChartTable(p, cn, "Championship odds — top 6 by probability", ["Team", "Champion %"],
+      top6.map(function (t) { return [t, (odds(t).champion * 100).toFixed(1) + "%"]; }));
   }
 
   // ---- TOURNAMENT ------------------------------------------------------------------------------
@@ -182,7 +220,7 @@
     function draw(filter) {
       var data = rows.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
       if (filter) data = data.filter(function (r) { return r.team.toLowerCase().indexOf(filter) >= 0; });
-      var thead = "<thead><tr>" + cols.map(function (c) { return '<th data-k="' + c[0] + '" class="' + (c[0] === st.key ? (st.dir < 0 ? "sorted" : "asc") : "") + '">' + c[1] + "</th>"; }).join("") + "</tr></thead>";
+      var thead = sortHead(cols, st);
       var body = "<tbody>" + data.map(function (r) {
         var dl = r.draw_luck || 0;
         return "<tr>" + cols.map(function (c) {
@@ -195,7 +233,7 @@
         }).join("") + "</tr>";
       }).join("") + "</tbody>";
       tbl.innerHTML = thead + body;
-      tbl.querySelectorAll("th").forEach(function (th) { th.onclick = function () { var k = th.dataset.k; st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw($(".search", head).value.toLowerCase()); }; });
+      wireSort(tbl, function (k) { st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw($(".search", head).value.toLowerCase()); });
     }
     draw("");
     $(".search", head).oninput = function () { draw(this.value.toLowerCase()); };
@@ -274,7 +312,8 @@
     var p = ce("div", "panel"); var cn = ce("div", "chart tall"); p.appendChild(cn); wrap.appendChild(p);
     var teams = (D.odds_sorted || []).slice(0, 12).reverse();
     var stages = ["Group", "R32", "R16", "QF", "SF", "Final", "Champion"];
-    var colors = [cssVar("--group"), "#37474f", cssVar("--r16"), cssVar("--qf"), cssVar("--sf"), cssVar("--final"), cssVar("--champ")];
+    // U2.3: Wong colorblind-safe categorical palette (was the raw round colors).
+    var colors = [cssVar("--cb-grey"), cssVar("--cb-skyblue"), cssVar("--cb-blue"), cssVar("--cb-green"), cssVar("--cb-purple"), cssVar("--cb-orange"), cssVar("--cb-vermillion")];
     mkChart(cn, Object.assign(axisTheme(), {
       legend: { data: stages, textStyle: { color: cssVar("--muted") }, top: 0 },
       grid: { left: 8, right: 16, top: 34, bottom: 6, containLabel: true },
@@ -283,6 +322,9 @@
       yAxis: Object.assign({ type: "category", data: teams }, axisStyle()),
       series: stages.map(function (s, i) { return { name: s, type: "bar", stack: "x", data: teams.map(function (t) { return (rd[t] || {})[s] || 0; }), itemStyle: { color: colors[i] } }; }),
     }));
+    attachChartTable(p, cn, "Outcome distribution — P(furthest stage reached) per team",
+      ["Team"].concat(stages),
+      teams.slice().reverse().map(function (t) { return [t].concat(stages.map(function (s) { return ((rd[t] || {})[s] || 0) * 100 < 0.05 ? "0%" : (((rd[t] || {})[s] || 0) * 100).toFixed(1) + "%"; })); }));
   }
 
   function finalsView(wrap) {
@@ -378,7 +420,7 @@
     var tbl = ce("table", "tbl sticky"); tp.appendChild(tbl); wrap.appendChild(tp);
     function draw() {
       var data = rs.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
-      tbl.innerHTML = "<thead><tr>" + cols.map(function (c) { return '<th data-k="' + c[0] + '" class="' + (c[0] === st.key ? (st.dir < 0 ? "sorted" : "asc") : "") + '">' + c[1] + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      tbl.innerHTML = sortHead(cols, st) + "<tbody>" +
         data.map(function (r) {
           return "<tr>" + cols.map(function (c) {
             var k = c[0], v = r[k];
@@ -387,7 +429,7 @@
             return "<td>" + (typeof v === "number" ? v.toFixed(2) : esc(v)) + "</td>";
           }).join("") + "</tr>";
         }).join("") + "</tbody>";
-      tbl.querySelectorAll("th").forEach(function (th) { th.onclick = function () { var k = th.dataset.k; st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); }; });
+      wireSort(tbl, function (k) { st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); });
     }
     draw();
   }
@@ -466,7 +508,7 @@
     var tbl = ce("table", "tbl sticky"); tp.appendChild(tbl); wrap.appendChild(tp);
     function draw() {
       var data = rows.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
-      tbl.innerHTML = "<thead><tr>" + cols.map(function (cc) { return '<th data-k="' + cc[0] + '" class="' + (cc[0] === st.key ? (st.dir < 0 ? "sorted" : "asc") : "") + '">' + cc[1] + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      tbl.innerHTML = sortHead(cols, st) + "<tbody>" +
         data.map(function (r) {
           return "<tr>" + cols.map(function (cc) {
             var k = cc[0], v = r[k];
@@ -476,7 +518,7 @@
             return "<td>" + (k === "travel_km" || k === "max_altitude_m" ? Math.round(v).toLocaleString() : (k === "min_rest_days" ? v : v.toFixed(2))) + "</td>";
           }).join("") + "</tr>";
         }).join("") + "</tbody>";
-      tbl.querySelectorAll("th").forEach(function (th) { th.onclick = function () { var k = th.dataset.k; st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); }; });
+      wireSort(tbl, function (k) { st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); });
     }
     draw();
     var note = ce("p", "faint"); note.style.fontSize = "12px"; note.textContent = c.note || ""; wrap.appendChild(note);
@@ -782,6 +824,12 @@
         { name: n1 + " win", type: "line", stack: "p", areaStyle: { color: cssVar("--away") }, lineStyle: { width: 0 }, symbol: "none", data: tl.map(function (p) { return p.p_away; }) },
       ],
     }));
+    if (node.parentNode) {  // sample ~ every 10' so the data table stays compact
+      var samp = tl.filter(function (p, i) { return p.minute % 10 === 0 || i === tl.length - 1; });
+      attachChartTable(node.parentNode, node, "Win / draw / loss probability by minute (" + n0 + " vs " + n1 + ")",
+        ["Minute", n0 + " win", "Draw", n1 + " win"],
+        samp.map(function (p) { return [p.minute + "'", (p.p_home * 100).toFixed(0) + "%", (p.p_draw * 100).toFixed(0) + "%", (p.p_away * 100).toFixed(0) + "%"]; }));
+    }
   }
 
   function xgChart(node, m) {
@@ -1043,13 +1091,16 @@
     var show = tracked.slice(0, 8);
     var dates = series.map(function (s) { return s.label === "baseline" ? "pre-tournament" : (s.date === "now" ? "now" : s.date); });
     var p = ce("div", "panel"); var cn = ce("div", "chart tall"); p.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Championship odds over time</h4>'; p.appendChild(cn); wrap.appendChild(p);
+    // U2.3: Wong palette + a 2nd channel (cycling solid/dashed/dotted line style + distinct markers).
+    var dashes = ["solid", "dashed", "dotted"], marks = ["circle", "triangle", "rect", "diamond"];
     mkChart(cn, Object.assign(axisTheme(), {
+      color: CB_PALETTE(),
       legend: { data: show, textStyle: { color: cssVar("--muted") }, top: 0, type: "scroll" },
       grid: { left: 8, right: 16, top: 30, bottom: 6, containLabel: true },
       tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
       xAxis: Object.assign({ type: "category", data: dates, boundaryGap: false }, axisStyle()),
       yAxis: Object.assign({ type: "value", axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
-      series: show.map(function (t) { return { name: t, type: "line", symbol: "circle", symbolSize: 6, data: series.map(function (s) { return (s.champion || {})[t]; }) }; }),
+      series: show.map(function (t, i) { return { name: t, type: "line", symbol: marks[i % marks.length], symbolSize: 7, lineStyle: { type: dashes[i % dashes.length] }, data: series.map(function (s) { return (s.champion || {})[t]; }) }; }),
     }));
     // biggest movers (now vs baseline).
     var base = series[0], now = series[series.length - 1];
