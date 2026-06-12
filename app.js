@@ -551,6 +551,24 @@
     var nA = pp.filter(function (r) { return r.attrs; }).length;
     note.textContent = "Age/height/foot from the CC0 Transfermarkt dump (basis tm) where a confident name+nation match exists (" + nA + " of " + pp.length + " shown).";
     wrap.appendChild(note);
+    setPieceTakers(wrap);
+  }
+
+  // L-B5: designated penalty / free-kick takers from CC0 EA ratings (basis ea) — labelled, not guessed.
+  function setPieceTakers(wrap) {
+    var t = D.set_piece_takers; if (!t) return;
+    var teams = Object.keys(t).sort(); if (!teams.length) return;
+    var d = ce("details", "exp"); var s = ce("summary"); s.textContent = "Designated set-piece takers (EA ratings)"; d.appendChild(s);
+    var body = ce("div", "exp-body");
+    body.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Team</th><th style="text-align:left">Penalty</th><th style="text-align:left">Free-kick</th></tr></thead><tbody>' +
+      teams.map(function (tm) {
+        var r = t[tm];
+        return '<tr><td style="text-align:left">' + flagImg(tm, "sm") + esc(tm) + '</td><td style="text-align:left">' + esc(r.penalty || "—") + (r.penalty_rating ? ' <span class="faint">' + r.penalty_rating + "</span>" : "") + '</td><td style="text-align:left">' + esc(r.freekick || "—") + (r.fk_rating ? ' <span class="faint">' + r.fk_rating + "</span>" : "") + "</td></tr>";
+      }).join("") + "</tbody></table>";
+    d.appendChild(body); wrap.appendChild(d);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Designated taker = each squad's top EA penalty / free-kick rating (basis ea, FC24). Identity only — crediting it inside the generated box score is a separate item.";
+    wrap.appendChild(note);
   }
 
   function goldenGloveView(wrap) {
