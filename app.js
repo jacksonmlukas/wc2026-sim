@@ -216,7 +216,7 @@
     var rows = (D.odds_sorted || []).map(function (t) { return Object.assign({ team: t }, odds(t)); });
     var st = { key: "champion", dir: -1 };
     var maxC = Math.max.apply(null, rows.map(function (r) { return r.champion || 0; })) || 1;
-    var tbl = ce("table", "tbl sticky"); p.appendChild(tbl); wrap.appendChild(p);
+    var tbl = ce("table", "tbl sticky cardify"); p.appendChild(tbl); wrap.appendChild(p);  // U3.2: cardify on mobile
     function draw(filter) {
       var data = rows.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
       if (filter) data = data.filter(function (r) { return r.team.toLowerCase().indexOf(filter) >= 0; });
@@ -224,12 +224,13 @@
       var body = "<tbody>" + data.map(function (r) {
         var dl = r.draw_luck || 0;
         return "<tr>" + cols.map(function (c) {
-          var k = c[0], v = r[k];
-          if (k === "team") return "<td>" + teamCell(r.team) + "</td>";
-          if (k === "expected_finish") return '<td style="text-align:left;color:var(--muted)">' + esc(v || "") + "</td>";
-          if (k === "draw_luck") return "<td><span class='chip " + (dl >= 0 ? "pos" : "neg") + "'>" + (dl >= 0 ? "+" : "") + (dl * 100).toFixed(1) + "pp</span></td>";
-          if (k === "champion") return '<td><span class="barcell" style="width:' + (v / maxC * 46) + 'px"></span> ' + pct(v) + "</td>";
-          return "<td>" + pct(v) + "</td>";
+          var k = c[0], v = r[k], inner;
+          if (k === "team") inner = teamCell(r.team);
+          else if (k === "expected_finish") inner = '<span style="color:var(--muted)">' + esc(v || "") + "</span>";
+          else if (k === "draw_luck") inner = "<span class='chip " + (dl >= 0 ? "pos" : "neg") + "'>" + (dl >= 0 ? "+" : "") + (dl * 100).toFixed(1) + "pp</span>";
+          else if (k === "champion") inner = '<span class="barcell" style="width:' + (v / maxC * 46) + 'px"></span> ' + pct(v);
+          else inner = pct(v);
+          return '<td data-th="' + esc(c[1]) + '">' + inner + "</td>";
         }).join("") + "</tr>";
       }).join("") + "</tbody>";
       tbl.innerHTML = thead + body;
@@ -282,10 +283,16 @@
           if (fu) g.append("image").attr("href", fu).attr("x", 6).attr("y", 5).attr("width", 16).attr("height", 11);
           g.append("text").attr("x", 26).attr("y", 15).attr("fill", cssVar("--text")).attr("font-size", 11).attr("font-weight", 600).text(s.cell.team);
           g.append("title").text(s.cell.team + " — " + (s.cell.champion * 100).toFixed(1) + "% title odds");
-          g.on("mouseenter", function () { svg.selectAll("rect[data-team]").attr("opacity", function () { return d3.select(this).attr("data-team") === s.cell.team ? 1 : .28; }); })
-            .on("mouseleave", function () { svg.selectAll("rect[data-team]").attr("opacity", 1); });
+          // U3.2: keyboard-reachable bracket nodes (tabindex + role + aria-label + focus highlight).
+          g.attr("tabindex", 0).attr("role", "link").attr("class", "bk-node bk-team")
+            .attr("aria-label", s.cell.team + ", " + (s.cell.champion * 100).toFixed(1) + "% title odds — open team");
+          function hi(on) { svg.selectAll("rect[data-team]").attr("opacity", function () { return !on || d3.select(this).attr("data-team") === s.cell.team ? 1 : .28; }); }
+          g.on("mouseenter", function () { hi(true); }).on("mouseleave", function () { hi(false); })
+            .on("focus", function () { hi(true); }).on("blur", function () { hi(false); })
+            .on("click", function () { location.hash = "#/team/" + encodeURIComponent(s.cell.team); })
+            .on("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.hash = "#/team/" + encodeURIComponent(s.cell.team); } });
         } else {
-          g.append("text").attr("x", 10).attr("y", 15).attr("fill", cssVar("--faint")).attr("font-size", 10.5).attr("font-style", "italic").text(s.cell.label);
+          g.append("text").attr("x", 10).attr("y", 15).attr("fill", cssVar("--faint")).attr("font-size", 12).attr("font-style", "italic").text(s.cell.label);
         }
       });
     });
@@ -925,7 +932,9 @@
     if (figs.length) {
       var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 class='sec-h2'>Calibration & realism diagrams</h2><span class='note'>reliability (predicted vs observed) · generated-vs-real distributions</span>"; wrap.appendChild(fh);
       var fg = ce("div", "grid2");
-      figs.forEach(function (f) { var p = ce("div", "panel"); p.innerHTML = '<img src="' + f + '" alt="' + f + '" style="width:100%;border-radius:8px;background:#fff">'; fg.appendChild(p); });
+      // U3.1: descriptive alt text (was the bare filename) so the diagrams are screen-reader legible.
+      var ALT = { "reliability.png": "Reliability diagram — the model's predicted win/draw/loss probabilities (x) plotted against the observed frequencies (y); points on the diagonal are perfectly calibrated.", "realism.png": "Realism diagram — distributions of generated vs real match statistics (shots, goals, possession) on the held-out fold; closer overlap means more realistic generated matches." };
+      figs.forEach(function (f) { var p = ce("div", "panel"); p.innerHTML = '<img src="' + f + '" alt="' + esc(ALT[f] || f) + '" style="width:100%;border-radius:8px;background:#fff">'; fg.appendChild(p); });
       wrap.appendChild(fg);
     }
     var callout = ce("div", "panel");
