@@ -882,8 +882,49 @@
     }
   }
 
+  // ---- HISTORY (prediction time-machine) -------------------------------------------------------
+  function renderHistory(root) {
+    var h = D.history || {}; var series = h.series || [], tracked = h.tracked || [];
+    var wrap = ce("div", "wrap"); root.appendChild(wrap);
+    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Prediction time-machine</h2><span class="note">how the forecast has moved from the pre-tournament baseline through each matchday</span>';
+    wrap.appendChild(head);
+    if (series.length <= 1) {
+      wrap.appendChild(ce("div", "panel", '<p class="faint">Only the pre-tournament baseline exists so far. As matchdays are played, <code>make update</code> freezes one immutable snapshot per day and this chart becomes the "stock ticker" of the tournament — each team\'s title odds over time, biggest movers, and any past day side-by-side with reality.</p>'));
+    }
+    // title-odds-over-time (top 8 tracked teams).
+    var show = tracked.slice(0, 8);
+    var dates = series.map(function (s) { return s.label === "baseline" ? "pre-tournament" : (s.date === "now" ? "now" : s.date); });
+    var p = ce("div", "panel"); var cn = ce("div", "chart tall"); p.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Championship odds over time</h4>'; p.appendChild(cn); wrap.appendChild(p);
+    mkChart(cn, Object.assign(axisTheme(), {
+      legend: { data: show, textStyle: { color: cssVar("--muted") }, top: 0, type: "scroll" },
+      grid: { left: 8, right: 16, top: 30, bottom: 6, containLabel: true },
+      tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
+      xAxis: Object.assign({ type: "category", data: dates, boundaryGap: false }, axisStyle()),
+      yAxis: Object.assign({ type: "value", axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
+      series: show.map(function (t) { return { name: t, type: "line", symbol: "circle", symbolSize: 6, data: series.map(function (s) { return (s.champion || {})[t]; }) }; }),
+    }));
+    // biggest movers (now vs baseline).
+    var base = series[0], now = series[series.length - 1];
+    if (base && now && base !== now) {
+      var movers = tracked.map(function (t) { return { team: t, d: ((now.champion || {})[t] || 0) - ((base.champion || {})[t] || 0) }; }).filter(function (r) { return Math.abs(r.d) > 1e-4; });
+      movers.sort(function (a, b) { return Math.abs(b.d) - Math.abs(a.d); });
+      if (movers.length) {
+        var mp = ce("div", "panel"); mp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Biggest movers vs pre-tournament</h4>' +
+          movers.slice(0, 8).map(function (r) { return '<div class="gb-row">' + teamCell(r.team) + '<span class="v"><span class="chip ' + (r.d >= 0 ? "pos" : "neg") + '">' + (r.d >= 0 ? "+" : "") + (r.d * 100).toFixed(1) + "pp</span></span></div>"; }).join("");
+        wrap.appendChild(mp);
+      }
+    }
+    // snapshot browser.
+    var snaps = h.snapshots || [];
+    if (snaps.length) {
+      var sp = ce("div", "panel"); sp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Snapshots</h4>' +
+        snaps.slice().reverse().map(function (s) { return '<div class="gb-row"><span class="who">' + esc(s.date) + (s.canonical ? ' <span class="chip pos">baseline</span>' : "") + '</span><span class="v faint">' + (s.n_pinned ? s.n_pinned + " matches · " + esc(s.through_stage) : "pre-tournament") + " · " + esc(String(s.git_sha)) + "</span></div>"; }).join("");
+      wrap.appendChild(sp);
+    }
+  }
+
   // ---- router ----------------------------------------------------------------------------------
-  var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout };
+  var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout, history: renderHistory };
   function route() {
     var parts = (location.hash.replace(/^#\/?/, "") || "home").split("/");
     var name = parts[0];
