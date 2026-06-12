@@ -18,6 +18,15 @@
     return code ? (D.flag_base + "/w" + (w || 40) + "/" + code + ".png") : null;
   }
   function flagImg(team, cls) { var u = flagURL(team); return u ? '<img class="flag ' + (cls || "") + '" src="' + u + '" alt="">' : '<span class="flag ' + (cls || "") + '" style="background:var(--line)"></span>'; }
+  function avatarURL(name) { return "https://api.dicebear.com/9.x/avataaars/svg?seed=" + encodeURIComponent(name || "") + "&backgroundType=gradientLinear"; }
+  // R8: headshots hotlink Wikimedia with no guarantee the image still resolves — every <img class=hs>
+  // gets an onerror that swaps to the generated Dicebear avatar so a 404 never shows a broken image.
+  function hsImg(name, hs, extra) {
+    var src = (hs || {})[name] || avatarURL(name);
+    var av = avatarURL(name);
+    return '<img class="hs ' + (extra || "") + '" src="' + src + '" alt="" loading="lazy" ' +
+      'onerror="this.onerror=null;this.src=\'' + av + '\'">';
+  }
   function odds(t) { return (D.odds || {})[t] || {}; }
   function disposeCharts() { charts.forEach(function (c) { try { c.dispose(); } catch (e) {} }); charts = []; }
   function mkChart(node, option) {
@@ -264,21 +273,29 @@
 
   function goldenBootView(wrap) {
     var gb = D.golden_boot || []; if (!gb.length) return;
-    var head = ce("div", "sec-head"); head.id = "gboot"; head.innerHTML = '<h2>Golden Boot race</h2><span class="note">ranked by projected goals · P(top scorer)</span>';
+    var head = ce("div", "sec-head"); head.id = "gboot";
+    // R6: the two metrics rank players differently (projected goals vs P(top)); a toggle makes the
+    // active sort key explicit instead of leaving P(top) looking non-monotonic down a goals-sorted list.
+    head.innerHTML = '<h2>Golden Boot race</h2><span class="note">sort by</span>' +
+      '<span class="seg-toggle"><button data-k="exp_goals" class="on">Projected goals</button><button data-k="p_top">P(top scorer)</button></span>';
     wrap.appendChild(head);
     var hs = D.headshots || {};
-    var podium = ce("div", "gb-podium");
-    gb.slice(0, 3).forEach(function (p2, i) {
-      var c = ce("div", "gb-card " + (i === 0 ? "first" : ""));
-      c.innerHTML = '<img class="hs" src="' + (hs[p2.player] || "") + '" alt=""><div class="pn">' + esc(p2.player) + '</div><div class="tn faint" style="font-size:12px;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px">' + flagImg(p2.team, "sm") + esc(p2.team) + '</div><div class="xg">' + p2.exp_goals.toFixed(1) + ' proj. goals</div><div class="faint" style="font-size:12px">' + (p2.p_top * 100).toFixed(1) + "% top scorer</div>";
-      podium.appendChild(c);
+    var podium = ce("div", "gb-podium"); wrap.appendChild(podium);
+    var p = ce("div", "panel"); wrap.appendChild(p);
+    function draw(key) {
+      var rows = gb.slice().sort(function (a, b) { return (b[key] || 0) - (a[key] || 0); });
+      podium.innerHTML = rows.slice(0, 3).map(function (p2, i) {
+        return '<div class="gb-card ' + (i === 0 ? "first" : "") + '">' + hsImg(p2.player, hs) + '<div class="pn">' + esc(p2.player) + '</div><div class="tn faint" style="font-size:12px;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px">' + flagImg(p2.team, "sm") + esc(p2.team) + '</div><div class="xg">' + p2.exp_goals.toFixed(1) + ' proj. goals</div><div class="faint" style="font-size:12px">' + (p2.p_top * 100).toFixed(1) + "% top scorer</div></div>";
+      }).join("");
+      p.innerHTML = rows.map(function (g, i) {
+        var primary = key === "p_top" ? (g.p_top * 100).toFixed(1) + "% top · " + g.exp_goals.toFixed(1) + " goals" : g.exp_goals.toFixed(1) + " proj. goals · " + (g.p_top * 100).toFixed(1) + "%";
+        return '<div class="gb-row"><span class="r">' + (i + 1) + '</span>' + hsImg(g.player, hs) + '<span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + primary + "</span></div>";
+      }).join("");
+    }
+    draw("exp_goals");
+    head.querySelectorAll(".seg-toggle button").forEach(function (b) {
+      b.onclick = function () { head.querySelectorAll(".seg-toggle button").forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); draw(b.dataset.k); };
     });
-    wrap.appendChild(podium);
-    var p = ce("div", "panel");
-    p.innerHTML = gb.map(function (g, i) {
-      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span><img class="hs" src="' + (hs[g.player] || "") + '" alt=""><span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + g.exp_goals.toFixed(1) + " proj. goals · " + (g.p_top * 100).toFixed(1) + "%</span></div>";
-    }).join("");
-    wrap.appendChild(p);
   }
 
   function ratingsView(wrap) {
@@ -371,19 +388,20 @@
     var head = ce("div", "sec-head"); head.id = "conditions";
     head.innerHTML = '<h2>Conditions & logistics</h2><span class="note">venue heat (WBGT proxy) + each team\'s group-stage travel, rest, altitude & heat burden</span>';
     wrap.appendChild(head);
-    // venue heat scale — horizontal bars by WBGT, hot→cool.
-    var vs = vnames.map(function (n) { return venues[n]; }).sort(function (a, b) { return b.wbgt - a.wbgt; });
-    var vp = ce("div", "panel"); vp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Venue heat — WBGT (°C) · ▦ = roof / AC</h4>';
+    // venue heat scale — ranked by EFFECTIVE (roof-discounted) heat-load, hot→cool (R4).
+    function effLoad(v) { return v.effective_heat_load != null ? v.effective_heat_load : v.heat_load; }
+    var vs = vnames.map(function (n) { return venues[n]; }).sort(function (a, b) { return effLoad(b) - effLoad(a); });
+    var vp = ce("div", "panel"); vp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Venue heat — effective in-stadium load · ▦ = roof / AC (discounted)</h4>';
     var cn = ce("div", "chart"); vp.appendChild(cn); wrap.appendChild(vp);
     mkChart(cn, Object.assign(axisTheme(), {
-      grid: { left: 8, right: 40, top: 6, bottom: 18, containLabel: true },
+      grid: { left: 8, right: 46, top: 6, bottom: 18, containLabel: true },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") },
-        formatter: function (ps) { var v = vs[ps[0].dataIndex]; return "<b>" + esc(v.city) + "</b> (" + esc(v.nation) + ")<br>WBGT " + v.wbgt + "°C · heat-load " + (v.heat_load * 100).toFixed(0) + "%<br>" + v.temp_c + "°C / " + v.rh_pct + "% RH · alt " + v.altitude_m + "m" + (v.climate_controlled ? "<br>roof / AC" : ""); } },
-      xAxis: Object.assign({ type: "value", name: "WBGT °C", nameLocation: "middle", nameGap: 22, nameTextStyle: { color: cssVar("--muted") } }, axisStyle()),
+        formatter: function (ps) { var v = vs[ps[0].dataIndex]; return "<b>" + esc(v.city) + "</b> (" + esc(v.nation) + ")<br>effective heat-load " + (effLoad(v) * 100).toFixed(0) + "%" + (v.climate_controlled ? " (roof / AC)" : "") + "<br>outdoor WBGT " + v.wbgt + "°C · raw load " + (v.heat_load * 100).toFixed(0) + "%<br>" + v.temp_c + "°C / " + v.rh_pct + "% RH · alt " + v.altitude_m + "m"; } },
+      xAxis: Object.assign({ type: "value", max: 1, name: "effective heat-load", nameLocation: "middle", nameGap: 22, nameTextStyle: { color: cssVar("--muted") }, axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
       yAxis: Object.assign({ type: "category", inverse: true, data: vs.map(function (v) { return v.city + (v.climate_controlled ? " ▦" : ""); }) }, axisStyle()),
-      visualMap: { show: false, min: 24, max: 33, dimension: 0, inRange: { color: ["#2c7fb8", "#fec44f", "#e34a33"] } },
-      series: [{ type: "bar", data: vs.map(function (v) { return v.wbgt; }), barWidth: 13, itemStyle: { borderRadius: [0, 4, 4, 0] },
-        label: { show: true, position: "right", color: cssVar("--muted"), formatter: function (p) { return p.value + "°"; } } }],
+      visualMap: { show: false, min: 0, max: 1, dimension: 0, inRange: { color: ["#2c7fb8", "#fec44f", "#e34a33"] } },
+      series: [{ type: "bar", data: vs.map(effLoad), barWidth: 13, itemStyle: { borderRadius: [0, 4, 4, 0] },
+        label: { show: true, position: "right", color: cssVar("--muted"), formatter: function (p) { return (p.value * 100).toFixed(0) + "%"; } } }],
     }));
     // per-team logistics table (sortable).
     var rows = Object.keys(teams).map(function (t) { return Object.assign({ team: t }, teams[t]); });
@@ -421,7 +439,7 @@
     p.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Player</th><th>Age · Ht</th><th>Anytime</th><th>Brace</th><th>Rate (λ)</th><th>Proj. tourn. goals</th></tr></thead><tbody>' +
       pp.map(function (r) {
         var a = r.attrs, who = a ? (a.age != null ? a.age + "y" : "") + (a.height_cm ? " · " + a.height_cm + "cm" : "") : "";
-        return '<tr><td style="text-align:left"><span class="who" style="display:flex;align-items:center;gap:8px"><img class="hs sm" src="' + (hs[r.player] || "") + '" alt="" style="width:26px;height:26px;border-radius:50%">' + esc(r.player) + " " + flagImg(r.team, "sm") + (a && a.foot ? ' <span class="faint" style="font-size:11px">' + esc(a.foot) + "</span>" : "") + '</span></td>' +
+        return '<tr><td style="text-align:left"><span class="who" style="display:flex;align-items:center;gap:8px">' + hsImg(r.player, hs, "sm") + esc(r.player) + " " + flagImg(r.team, "sm") + (a && a.foot ? ' <span class="faint" style="font-size:11px">' + esc(a.foot) + "</span>" : "") + '</span></td>' +
           '<td class="faint">' + (who || "—") + "</td>" +
           '<td><span class="barcell" style="width:' + (r.anytime * 46) + 'px"></span> ' + (r.anytime * 100).toFixed(0) + "%</td>" +
           "<td>" + (r.multi * 100).toFixed(0) + "%</td><td>" + r.rate.toFixed(2) + "</td><td>" + r.tournament_goals.toFixed(1) + "</td></tr>";
@@ -482,14 +500,14 @@
     // shot map + win prob
     var g2 = ce("div", "grid2");
     var pm = ce("div", "panel"); pm.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Shot map <span class="faint">· size = xG · ★ = goal</span></h4>'; var pitch = ce("div"); pm.appendChild(pitch); g2.appendChild(pm);
-    var pw = ce("div", "panel"); pw.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Win / draw / loss probability <span class="faint">· live, by match state</span></h4>'; var cw = ce("div", "chart short"); pw.appendChild(cw); g2.appendChild(pw);
+    var pw = ce("div", "panel"); pw.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Win / draw / loss probability <span class="faint">· in-running (Realism rollout)</span></h4><p class="faint" style="font-size:11px;margin:2px 0 4px">In-running estimate from the simulated events — differs from the pre-match Dixon–Coles split (scoreline panel) by design; this is the live model, that is the bookmaker-style prior.</p>'; var cw = ce("div", "chart short"); pw.appendChild(cw); g2.appendChild(pw);
     wrap.appendChild(g2);
     drawShotMap(pitch, m);
     if (m.timeline) winProbChart(cw, m);
 
     var g3 = ce("div", "grid2");
     var px = ce("div", "panel"); px.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Cumulative xG</h4>'; var cx = ce("div", "chart short"); px.appendChild(cx); g3.appendChild(px);
-    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· Dixon–Coles · pre-match</span></h4>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
+    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· pre-match (Dixon–Coles)</span></h4>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
     wrap.appendChild(g3);
     if (m.timeline) xgChart(cx, m);
 
