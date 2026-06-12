@@ -207,7 +207,7 @@
     var g = ce("div", "groups");
     Object.keys(groups).sort().forEach(function (gn) {
       var teams = groups[gn].slice().sort(function (a, b) { return (odds(b).advance || 0) - (odds(a).advance || 0); });
-      var card = ce("div", "panel group"); var h = "<h4>Group " + gn + "</h4>";
+      var card = ce("div", "panel group"); var h = '<h4><a href="#/group/' + gn + '" class="grouplink">Group ' + gn + " →</a></h4>";
       h += teams.map(function (t, i) { var a = odds(t).advance || 0; return '<div class="grow ' + (i < 2 ? "q" : "") + '">' + flagImg(t, "sm") + '<span class="nm">' + esc(t) + '</span><span class="qbar"><i style="width:' + (a * 100) + '%"></i></span><span class="av">' + (a * 100).toFixed(0) + "%</span></div>"; }).join("");
       card.innerHTML = h; g.appendChild(card);
     });
@@ -766,7 +766,7 @@
     var g = groupOf(name);
     var head = ce("div", "sec-head");
     head.innerHTML = '<a href="#/tournament" class="faint" style="font-size:13px">← tournament</a>' +
-      '<h2 style="margin-top:4px;display:flex;align-items:center;gap:10px">' + flagImg(name) + esc(name) + (g ? ' <span class="note">Group ' + g + "</span>" : "") + "</h2>";
+      '<h2 style="margin-top:4px;display:flex;align-items:center;gap:10px">' + flagImg(name) + esc(name) + (g ? ' <a class="note grouplink" href="#/group/' + g + '">Group ' + g + " →</a>" : "") + "</h2>";
     wrap.appendChild(head);
     // KPIs
     var kpis = ce("div", "kpis");
@@ -831,6 +831,55 @@
     }
   }
 
+  // ---- GROUP DETAIL ----------------------------------------------------------------------------
+  function renderGroup(root, letter) {
+    letter = (letter || "").toUpperCase();
+    var wrap = ce("div", "wrap"); root.appendChild(wrap);
+    var gd = (D.groups_detail || {})[letter];
+    if (!gd) { wrap.innerHTML = '<div class="sec-head"><h2>Group ' + esc(letter) + '</h2></div><div class="panel"><p class="faint">No group data. <a href="#/tournament">Back</a></p></div>'; return; }
+    var head = ce("div", "sec-head");
+    head.innerHTML = '<a href="#/tournament" class="faint" style="font-size:13px">← tournament</a><h2 style="margin-top:4px">Group ' + esc(letter) + '</h2><span class="note">chaos index ' + (gd.chaos * 100).toFixed(0) + '% · higher = more open</span>';
+    wrap.appendChild(head);
+    var teams = gd.table.map(function (r) { return r.team; });
+
+    // finish-position heat-grid (team × 1st/2nd/3rd/4th).
+    var hp = ce("div", "panel"); hp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Finish-position probability</h4>';
+    var grid = ce("div", "posgrid");
+    grid.innerHTML = '<div class="pg-h"></div><div class="pg-h">1st</div><div class="pg-h">2nd</div><div class="pg-h">3rd</div><div class="pg-h">4th</div>' +
+      gd.table.map(function (r) {
+        return '<div class="pg-t">' + flagImg(r.team, "sm") + esc(r.team) + "</div>" + ["1", "2", "3", "4"].map(function (k) {
+          var p = (r.p_pos || {})[k] || 0;
+          return '<div class="pg-c" style="background:color-mix(in srgb, var(--accent) ' + (p * 100).toFixed(0) + '%, var(--panel-2))" title="' + esc(r.team) + " " + k + ": " + (p * 100).toFixed(1) + '%">' + (p * 100).toFixed(0) + "</div>";
+        }).join("");
+      }).join("");
+    hp.appendChild(grid); wrap.appendChild(hp);
+
+    // expected points bar.
+    var ep = ce("div", "panel"); var cn = ce("div", "chart short"); ep.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Expected group points <span class="faint">· advance / qualify odds</span></h4>'; ep.appendChild(cn); wrap.appendChild(ep);
+    mkChart(cn, Object.assign(axisTheme(), {
+      grid: { left: 8, right: 60, top: 6, bottom: 18, containLabel: true },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") },
+        formatter: function (ps) { var r = gd.table[ps[0].dataIndex]; return "<b>" + esc(r.team) + "</b><br>exp " + r.exp_points.toFixed(1) + " pts<br>win group " + (r.p_win_group * 100).toFixed(0) + "% · advance " + (r.p_advance * 100).toFixed(0) + "%"; } },
+      xAxis: Object.assign({ type: "value", max: 9, name: "pts", nameLocation: "end", nameTextStyle: { color: cssVar("--muted") } }, axisStyle()),
+      yAxis: Object.assign({ type: "category", inverse: true, data: teams }, axisStyle()),
+      series: [{ type: "bar", data: gd.table.map(function (r) { return { value: +r.exp_points.toFixed(2), itemStyle: { color: r.p_advance >= 0.5 ? cssVar("--good") : cssVar("--muted"), borderRadius: [0, 4, 4, 0] } }; }), barWidth: 16,
+        label: { show: true, position: "right", color: cssVar("--text"), formatter: function (p) { return p.value + " pts"; } } }],
+    }));
+
+    // most-likely full tables.
+    if ((gd.likely_tables || []).length) {
+      var lp = ce("div", "panel"); lp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Most-likely final tables</h4>' +
+        gd.likely_tables.map(function (t) { return '<div class="gb-row"><span class="who" style="gap:6px;flex-wrap:wrap">' + t.order.map(function (nm, i) { return '<span class="faint">' + (i + 1) + ".</span> " + flagImg(nm, "sm") + " " + esc(nm); }).join(" ") + '</span><span class="v">' + (t.p * 100).toFixed(1) + "%</span></div>"; }).join("");
+      wrap.appendChild(lp);
+    }
+    // R32 opponents by finishing slot.
+    if (gd.r32_by_finish && Object.keys(gd.r32_by_finish).length) {
+      var rp = ce("div", "panel"); rp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">First knockout by finish</h4>' +
+        Object.keys(gd.r32_by_finish).map(function (k) { var o = gd.r32_by_finish[k]; return '<div class="gb-row"><span class="who">' + (k === "winner" ? "Group winner" : "Runner-up") + ' → ' + esc(o.slot) + '</span><span class="v faint">likely ' + (o.likely_team ? esc(o.likely_team) : "—") + "</span></div>"; }).join("");
+      wrap.appendChild(rp);
+    }
+  }
+
   // ---- router ----------------------------------------------------------------------------------
   var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout };
   function route() {
@@ -842,6 +891,7 @@
     if (name === "matches") { renderMatches(view, parts[1]); navKey = "matches"; }
     else if (name === "match") { renderMatchDetail(view, parts[1]); navKey = "matches"; }
     else if (name === "team") { renderTeam(view, parts.slice(1).join("/")); navKey = "tournament"; }
+    else if (name === "group") { renderGroup(view, parts[1]); navKey = "tournament"; }
     else { if (!ROUTES[name]) name = "home"; ROUTES[name](view); navKey = name; }
     document.querySelectorAll("nav.tabs a").forEach(function (a) { a.classList.toggle("active", a.dataset.route === navKey); });
     window.scrollTo(0, 0);
