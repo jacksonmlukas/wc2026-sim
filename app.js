@@ -706,10 +706,63 @@
   function headToHeadViewX(w) { expander(w, "Head-to-head explorer", headToHeadView); }
 
   // U1.2: the 14 Tournament panels grouped into ≤5-panel sub-views (one question per view).
+  // Phase M: most-pivotal upcoming fixtures — outcome uncertainty × combined title stakes.
+  function pivotalView(wrap) {
+    var pv = D.pivotal || []; if (!pv.length) return;
+    var head = ce("div", "sec-head"); head.id = "pivotal";
+    head.innerHTML = '<h2>Matches to watch</h2><span class="note">upcoming fixtures ranked by outcome uncertainty × combined title stakes (a proxy, no per-match re-sim)</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel");
+    p.innerHTML = pv.map(function (r, i) {
+      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span><span class="who" style="display:flex;align-items:center;gap:8px">' + flagImg(r.home, "sm") + esc(r.home) + ' <span class="faint">v</span> ' + flagImg(r.away, "sm") + esc(r.away) + ' <span class="faint" style="font-size:11px">' + esc(r.date) + (r.city ? " · " + esc(r.city) : "") + '</span></span><span class="v"><span class="barcell" style="width:' + (r.uncertainty * 46) + 'px"></span> ' + (r.uncertainty * 100).toFixed(0) + "% toss-up</span></div>";
+    }).join("");
+    wrap.appendChild(p);
+  }
+
+  // Phase M: auto-written match previews (templated, no LLM) for the next fixtures.
+  function previewsView(wrap) {
+    var pv = D.previews || []; if (!pv.length) return;
+    var head = ce("div", "sec-head"); head.id = "previews";
+    head.innerHTML = '<h2>Match previews</h2><span class="note">auto-written from the model\'s W/D/L, expected goals, and title odds — no hand-editing</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel");
+    p.innerHTML = pv.map(function (r) {
+      return '<div class="cardify" style="margin-bottom:8px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><strong>' + flagImg(r.home, "sm") + esc(r.home) + " v " + flagImg(r.away, "sm") + esc(r.away) + '</strong> <span class="faint" style="font-size:11px">' + esc(r.date) + (r.city ? " · " + esc(r.city) : "") + '</span></div><span class="faint">' + esc(r.text) + "</span></div>";
+    }).join("");
+    wrap.appendChild(p);
+  }
+
+  // Phase M: fan chart — one team's "cone of uncertainty" over the rounds it might reach.
+  function fanChartView(wrap) {
+    var rd = D.round_dist; if (!rd || !Object.keys(rd).length) return;
+    var head = ce("div", "sec-head"); head.id = "fan";
+    head.innerHTML = '<h2>How far does a team go?</h2><span class="note">pick a team — its probability of reaching each stage, across the Monte Carlo</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel");
+    var teams = (D.odds_sorted || []).filter(function (t) { return rd[t]; });
+    var ctrl = ce("div", "stylectrl");
+    ctrl.innerHTML = '<label>Team <select class="dsel ft">' + teams.map(function (t) { return "<option>" + esc(t) + "</option>"; }).join("") + "</select></label>";
+    p.appendChild(ctrl);
+    var cn = ce("div", "chart"); p.appendChild(cn); wrap.appendChild(p);
+    var stages = ["Group", "R32", "R16", "QF", "SF", "Final", "Champion"];
+    function draw() {
+      var t = ctrl.querySelector(".ft").value, d = rd[t] || {};
+      mkChart(cn, Object.assign(axisTheme(), {
+        grid: { left: 8, right: 16, top: 16, bottom: 6, containLabel: true },
+        tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
+        xAxis: Object.assign({ type: "category", data: stages }, axisStyle()),
+        yAxis: Object.assign({ type: "value", max: 1, axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
+        series: [{ type: "bar", data: stages.map(function (s) { return d[s] || 0; }), itemStyle: { color: cssVar("--cb-blue") } }],
+      }));
+    }
+    ctrl.querySelector(".ft").onchange = draw; draw();
+  }
+
   var TOUR_GROUPS = [
     { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, marketAnchorView, ratingsView] },
     { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
-    { key: "distributions", label: "Distributions", panels: [distView, finalsView, upsetView, drawLuckView] },
+    { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
+    { key: "watch", label: "Watch", panels: [pivotalView, previewsView] },
     { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
   ];
