@@ -13,6 +13,8 @@
   function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
   function pct(x, d) { return (x * 100).toFixed(d == null ? 1 : d) + "%"; }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]; }); }
+  // P(X >= k) for X ~ Poisson(lambda) — client-side goal-distribution tails (View 3).
+  function poissonTail(lam, k) { var c = Math.exp(-lam), s = c; for (var i = 1; i < k; i++) { c *= lam / i; s += c; } return Math.max(0, 1 - s); }
   function flagURL(team, w) {
     var code = (D.flags || {})[team] || (D.flags || {})[(team || "").replace(/\s*(Women's|U-?\d+).*$/, "").trim()];
     return code ? (D.flag_base + "/w" + (w || 40) + "/" + code + ".png") : null;
@@ -391,7 +393,9 @@
       }).join("");
       p.innerHTML = rows.map(function (g, i) {
         var primary = key === "p_top" ? (g.p_top * 100).toFixed(1) + "% top · " + g.exp_goals.toFixed(1) + " goals" : g.exp_goals.toFixed(1) + " proj. goals · " + (g.p_top * 100).toFixed(1) + "%";
-        return '<div class="gb-row"><span class="r">' + (i + 1) + '</span>' + hsImg(g.player, hs) + '<span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + primary + "</span></div>";
+        // View 3: tournament goal distribution from a Poisson(exp_goals) — P(≥3 / ≥5 goals).
+        var d3 = (poissonTail(g.exp_goals, 3) * 100).toFixed(0), d5 = (poissonTail(g.exp_goals, 5) * 100).toFixed(0);
+        return '<div class="gb-row"><span class="r">' + (i + 1) + '</span>' + hsImg(g.player, hs) + '<span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + primary + ' <span class="faint" style="font-size:11px">· ≥3: ' + d3 + "% · ≥5: " + d5 + "%</span></span></div>";
       }).join("");
     }
     draw("exp_goals");
@@ -535,21 +539,51 @@
     var pp = D.player_props || []; if (!pp.length) return;
     var hs = D.headshots || {};
     var head = ce("div", "sec-head"); head.id = "props";
-    head.innerHTML = '<h2>Scorer props</h2><span class="note">single match vs an average opponent · anytime (≥1) &amp; brace (≥2) from each player\'s per-match Poisson rate</span>';
+    head.innerHTML = '<h2>Player prop hub</h2><span class="note">single match vs an average opponent · anytime (≥1) &amp; brace (≥2) from each player\'s per-match Poisson rate — filter &amp; sort</span>';
     wrap.appendChild(head);
-    var p = ce("div", "panel"); p.style.overflowX = "auto";
-    p.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Player</th><th>Age · Ht</th><th>Anytime</th><th>Brace</th><th>Rate (λ)</th><th>Proj. tourn. goals</th></tr></thead><tbody>' +
-      pp.map(function (r) {
+    // View 4: a sortable + filterable hub over the props. Team + position filters; click a column to sort.
+    var teams = [""].concat(Array.from(new Set(pp.map(function (r) { return r.team; }))).sort());
+    var positions = [""].concat(Array.from(new Set(pp.map(function (r) { return r.attrs && r.attrs.position; }).filter(Boolean))).sort());
+    var ctrl = ce("div", ""); ctrl.style.margin = "0 0 8px";
+    ctrl.innerHTML = 'Team <select id="pp-team">' + teams.map(function (t) { return '<option value="' + esc(t) + '">' + (t ? esc(t) : "All") + "</option>"; }).join("") +
+      '</select> Position <select id="pp-pos">' + positions.map(function (t) { return '<option value="' + esc(t) + '">' + (t ? esc(t) : "All") + "</option>"; }).join("") + "</select>";
+    wrap.appendChild(ctrl);
+    var p = ce("div", "panel"); p.style.overflowX = "auto"; wrap.appendChild(p);
+    var sortKey = "anytime", sortDir = -1;
+    var COLS = [["player", "Player"], ["attrs", "Age · Ht"], ["anytime", "Anytime"], ["multi", "Brace"],
+      ["rate", "Rate (λ)"], ["tournament_goals", "Proj. goals"]];
+    function draw() {
+      var ft = document.getElementById("pp-team").value, fp = document.getElementById("pp-pos").value;
+      var rows = pp.filter(function (r) {
+        return (!ft || r.team === ft) && (!fp || (r.attrs && r.attrs.position === fp));
+      }).slice().sort(function (a, b) {
+        var x = a[sortKey], y = b[sortKey];
+        if (typeof x === "string") return sortDir * x.localeCompare(y);
+        return sortDir * ((x || 0) - (y || 0));
+      });
+      p.innerHTML = '<table class="tbl"><thead><tr>' + COLS.map(function (c) {
+        return '<th data-k="' + c[0] + '" style="cursor:pointer' + (c[0] === "player" ? ";text-align:left" : "") + '">' + c[1] + (c[0] === sortKey ? (sortDir < 0 ? " ▾" : " ▴") : "") + "</th>";
+      }).join("") + "</tr></thead><tbody>" + rows.map(function (r) {
         var a = r.attrs, who = a ? (a.age != null ? a.age + "y" : "") + (a.height_cm ? " · " + a.height_cm + "cm" : "") : "";
         return '<tr><td style="text-align:left"><span class="who" style="display:flex;align-items:center;gap:8px">' + hsImg(r.player, hs, "sm") + esc(r.player) + " " + flagImg(r.team, "sm") + (a && a.foot ? ' <span class="faint" style="font-size:11px">' + esc(a.foot) + "</span>" : "") + '</span></td>' +
           '<td class="faint">' + (who || "—") + "</td>" +
           '<td><span class="barcell" style="width:' + (r.anytime * 46) + 'px"></span> ' + (r.anytime * 100).toFixed(0) + "%</td>" +
           "<td>" + (r.multi * 100).toFixed(0) + "%</td><td>" + r.rate.toFixed(2) + "</td><td>" + r.tournament_goals.toFixed(1) + "</td></tr>";
       }).join("") + "</tbody></table>";
-    wrap.appendChild(p);
+      p.querySelectorAll("th[data-k]").forEach(function (th) {
+        th.onclick = function () {
+          var k = th.dataset.k;
+          if (k === sortKey) sortDir = -sortDir; else { sortKey = k; sortDir = -1; }
+          draw();
+        };
+      });
+    }
+    document.getElementById("pp-team").addEventListener("change", draw);
+    document.getElementById("pp-pos").addEventListener("change", draw);
+    draw();
     var note = ce("p", "faint"); note.style.fontSize = "12px";
     var nA = pp.filter(function (r) { return r.attrs; }).length;
-    note.textContent = "Age/height/foot from the CC0 Transfermarkt dump (basis tm) where a confident name+nation match exists (" + nA + " of " + pp.length + " shown).";
+    note.textContent = "Age/height/foot/position from the CC0 Transfermarkt dump (basis tm) where a confident name+nation match exists (" + nA + " of " + pp.length + "). Assist/card props + a realism-slate scorer-frequency cross-check are pending (see GATED_ITEMS).";
     wrap.appendChild(note);
     setPieceTakers(wrap);
   }
@@ -690,6 +724,93 @@
     note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); model↔anchored rank ρ=" + (a.rank_corr != null ? a.rank_corr.toFixed(2) : "—") + " (ordering largely preserved). De-vigged anchor only (no raw price mirror, no bookmaker named). Source: The Odds API.";
     wrap.appendChild(note);
   }
+
+  // Rooting guide — how each unplayed result shifts every team's advance odds.
+  function rootingBucketLabel(home, away, b) {
+    if (b === "draw") return "Draw";
+    var m = b.match(/^(home|away)_by_(\d\+?)$/); if (!m) return b;
+    return (m[1] === "home" ? esc(home) : esc(away)) + " by " + m[2];
+  }
+  function rootingView(wrap) {
+    var r = D.rooting; if (!r || !r.fixtures || !r.fixtures.length) return;
+    var head = ce("div", "sec-head"); head.id = "rooting";
+    head.innerHTML = '<h2>Rooting guide</h2><span class="note">how each upcoming result (by winner × goal-difference) swings every team’s odds to advance — pick a match</span>';
+    wrap.appendChild(head);
+    // Rank fixtures by their biggest single swing so the most consequential matches lead.
+    function maxSwing(f) {
+      var mx = 0;
+      Object.keys(f.buckets || {}).forEach(function (b) {
+        (f.buckets[b].movers || []).forEach(function (m) { mx = Math.max(mx, Math.abs(m.d_advance)); });
+      });
+      return mx;
+    }
+    var fixtures = r.fixtures.slice().sort(function (a, b) { return maxSwing(b) - maxSwing(a); }).slice(0, 16);
+    fixtures.forEach(function (f) {
+      var p = ce("div", "panel");
+      var rows = Object.keys(f.buckets || {}).map(function (b) {
+        var bk = f.buckets[b];
+        var movers = (bk.movers || []).slice(0, 4).map(function (m) {
+          var col = m.d_advance >= 0 ? "var(--good,#2e7d32)" : "var(--bad,#c62828)";
+          var sign = m.d_advance >= 0 ? "+" : "";
+          return '<span style="white-space:nowrap;margin-right:10px">' + flagImg(m.team, "sm") + esc(m.team) +
+            ' <b style="color:' + col + '">' + sign + (m.d_advance * 100).toFixed(0) + 'pp</b></span>';
+        }).join("");
+        return '<tr><td style="white-space:nowrap">' + rootingBucketLabel(f.home, f.away, b) +
+          ' <span class="faint">(' + (bk.p * 100).toFixed(0) + '%)</span></td><td>' + (movers || '<span class="faint">—</span>') + '</td></tr>';
+      }).join("");
+      p.innerHTML = '<h3 style="margin:.2em 0">' + flagImg(f.home, "sm") + esc(f.home) + ' vs ' + flagImg(f.away, "sm") + esc(f.away) +
+        '</h3><table class="chart-table"><thead><tr><th>Result</th><th>Who it helps / hurts (Δ advance)</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      wrap.appendChild(p);
+    });
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Δ = change in P(advance from the group) vs the baseline, from one instrumented conditional Monte-Carlo pass (" + (r.n_sims || "") + " sims); cross-group best-third coupling included. Buckets below the sample floor are omitted.";
+    wrap.appendChild(note);
+  }
+
+  // View 2 — "if it goes to pens": interpolate the precomputed shootout win-curve for any pair.
+  function shootoutCurve(curve, gap) {
+    var g = curve.gap, p = curve.p_a_win;
+    if (gap <= g[0]) return p[0];
+    if (gap >= g[g.length - 1]) return p[p.length - 1];
+    for (var i = 1; i < g.length; i++) {
+      if (gap <= g[i]) { var t = (gap - g[i - 1]) / (g[i] - g[i - 1]); return p[i - 1] + t * (p[i] - p[i - 1]); }
+    }
+    return 0.5;
+  }
+  function shootoutView(wrap) {
+    var s = D.shootout; if (!s || !s.teams) return;
+    var head = ce("div", "sec-head"); head.id = "shootout";
+    head.innerHTML = '<h2>Penalty shootout simulator</h2><span class="note">any two teams — "if it goes to pens" win probability (research-backed kick-order + leverage + Elo + each side’s shootout record)</span>';
+    wrap.appendChild(head);
+    var teamNames = Object.keys(s.teams).sort();
+    var byEff = teamNames.slice().sort(function (a, b) { return s.teams[b].eff_elo - s.teams[a].eff_elo; });
+    function sel(id, def) {
+      return '<select id="' + id + '" style="padding:4px;margin:0 6px">' +
+        teamNames.map(function (n) { return '<option' + (n === def ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join("") + '</select>';
+    }
+    var p = ce("div", "panel");
+    p.innerHTML = '<div style="margin-bottom:10px">' + sel("so-a", byEff[0]) + ' vs ' + sel("so-b", byEff[1]) + '</div><div id="so-out"></div>';
+    wrap.appendChild(p);
+    function render() {
+      var a = document.getElementById("so-a").value, b = document.getElementById("so-b").value;
+      var ta = s.teams[a], tb = s.teams[b];
+      var pa = shootoutCurve(s.curve, ta.eff_elo - tb.eff_elo);
+      var bar = function (label, prob, who) {
+        return '<div style="margin:4px 0"><b>' + flagImg(who, "sm") + esc(who) + '</b> ' + (prob * 100).toFixed(1) + '%' +
+          '<div style="background:var(--rail,#eee);border-radius:4px;height:10px;width:100%"><div style="background:var(--accent,#1565c0);height:10px;border-radius:4px;width:' + (prob * 100).toFixed(1) + '%"></div></div></div>';
+      };
+      var rd = s.round_dist || {};
+      document.getElementById("so-out").innerHTML =
+        bar("", pa, a) + bar("", 1 - pa, b) +
+        '<p class="faint" style="font-size:12px;margin-top:8px">Designated takers: ' +
+        esc(a) + ' — ' + esc(ta.penalty_taker || "—") + ' · ' + esc(b) + ' — ' + esc(tb.penalty_taker || "—") +
+        '. Records (W/played): ' + esc(a) + ' ' + ta.record + ', ' + esc(b) + ' ' + tb.record +
+        '. At an even matchup ~' + ((rd.sudden_death || 0) * 100).toFixed(0) + '% go to sudden death.</p>';
+    }
+    p.querySelector("#so-a").addEventListener("change", render);
+    p.querySelector("#so-b").addEventListener("change", render);
+    render();
+  }
   function contextIntro(wrap) {
     var p = ce("div", "sec-sub"); p.textContent = "Secondary context behind the odds — each team's data-derived play-style, its heat/travel/altitude burden, and a what-if head-to-head over any pairing. Expand a panel to dig in.";
     wrap.appendChild(p);
@@ -763,6 +884,8 @@
     { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
     { key: "watch", label: "Watch", panels: [pivotalView, previewsView] },
+    { key: "rooting", label: "Rooting", panels: [rootingView] },
+    { key: "shootout", label: "Shootout", panels: [shootoutView] },
     { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
   ];
@@ -904,6 +1027,20 @@
     card.innerHTML += '<div class="faint" style="text-align:center;margin-top:8px;font-size:13px">expected total ' + p.expected_total.toFixed(1) + " goals</div>";
     wrap.appendChild(card);
     var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· Dixon–Coles</span></h4>'; pd.appendChild(scoreDistEl(p, n0, n1)); wrap.appendChild(pd);
+    // View 1: the Realism Engine's generated box score for this fixture (from the offline slate).
+    var sl = (D.realism_slate || {})[n0 + "|" + n1] || (D.realism_slate || {})[n1 + "|" + n0];
+    if (sl) {
+      var rp = ce("div", "panel");
+      var scorers = (sl.scorers || []).slice(0, 6).map(function (s) {
+        return '<li>' + esc(s.player) + ' <span class="faint">(' + esc(s.team) + ") ×" + s.n + "</span></li>";
+      }).join("");
+      rp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Realism Engine — typical match <span class="faint">· ' + (sl.n_sims || "") + ' sims</span></h4>' +
+        '<p style="margin:.3em 0"><b>Most likely: ' + esc(n0) + " " + sl.modal_score[0] + "–" + sl.modal_score[1] + " " + esc(n1) +
+        '</b> · mean goals ' + sl.mean_goals[0].toFixed(1) + "–" + sl.mean_goals[1].toFixed(1) +
+        ' · xG ' + sl.mean_xg[0].toFixed(1) + "–" + sl.mean_xg[1].toFixed(1) + "</p>" +
+        (scorers ? '<div class="faint" style="font-size:12px">Frequent scorers across sims:</div><ul style="margin:.2em 0 0;padding-left:18px;font-size:13px">' + scorers + "</ul>" : "");
+      wrap.appendChild(rp);
+    }
     // If we actually simulated this exact fixture, link to the full box score.
     var m = D.match;
     if (m && m._teams && ((m._teams[0] === n0 && m._teams[1] === n1) || (m._teams[0] === n1 && m._teams[1] === n0))) {
