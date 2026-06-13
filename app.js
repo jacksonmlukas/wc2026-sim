@@ -678,7 +678,7 @@
   function marketAnchorView(wrap) {
     var a = D.odds_anchor; if (!a || !a.overlay || !a.overlay.length) return;
     var head = ce("div", "sec-head"); head.id = "market";
-    head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown, model ordering preserved</span>';
+    head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown; the anchor reorders only where the market sharply disagrees (e.g. host-boosted sides)</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel");
     p.innerHTML = '<table class="chart-table"><thead><tr><th>Team</th><th>Model</th><th>Market</th><th>Anchored</th></tr></thead><tbody>' +
@@ -687,7 +687,7 @@
       }).join("") + '</tbody></table>';
     wrap.appendChild(p);
     var note = ce("p", "faint"); note.style.fontSize = "12px";
-    note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); de-vigged anchor only (no raw price mirror, no bookmaker named). Source: The Odds API.";
+    note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); model↔anchored rank ρ=" + (a.rank_corr != null ? a.rank_corr.toFixed(2) : "—") + " (ordering largely preserved). De-vigged anchor only (no raw price mirror, no bookmaker named). Source: The Odds API.";
     wrap.appendChild(note);
   }
   function contextIntro(wrap) {
