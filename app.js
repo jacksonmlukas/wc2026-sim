@@ -166,7 +166,12 @@
     function kpi(lbl, valHTML, sub, cls) {
       var k = ce("div", "kpi " + (cls || "")); k.innerHTML = '<div class="lbl">' + lbl + '</div><div class="val">' + valHTML + '</div><div class="sub">' + (sub || "") + '</div>'; return k;
     }
-    if (fav) kpis.appendChild(kpi("Title favourite", '<span class="flagrow">' + flagImg(fav) + esc(fav) + "</span>", pct(o.champion) + " to win"));
+    if (fav) {
+      // B5: show the bootstrap parameter-uncertainty band on the favourite's title odds when present.
+      var favSub = pct(o.champion) + " to win";
+      if (o.champion_ci && o.champion_ci.lo != null) favSub += " · 90% CI " + pct(o.champion_ci.lo) + "–" + pct(o.champion_ci.hi);
+      kpis.appendChild(kpi("Title favourite", '<span class="flagrow">' + flagImg(fav) + esc(fav) + "</span>", favSub));
+    }
     if (fp) kpis.appendChild(kpi("Most-likely final", esc(fp.a) + " – " + esc(fp.b), pct(fp.p) + " of runs"));
     if (gb) kpis.appendChild(kpi("Golden Boot pick", esc(gb.player), gb.exp_goals.toFixed(1) + " proj. goals · " + esc(gb.team)));
     if (ev.results_backtest_brier != null) kpis.appendChild(kpi("Model credibility",
@@ -230,7 +235,7 @@
           if (k === "team") inner = teamCell(r.team);
           else if (k === "expected_finish") inner = '<span style="color:var(--muted)">' + esc(v || "") + "</span>";
           else if (k === "draw_luck") inner = "<span class='chip " + (dl >= 0 ? "pos" : "neg") + "'>" + (dl >= 0 ? "+" : "") + (dl * 100).toFixed(1) + "pp</span>";
-          else if (k === "champion") inner = '<span class="barcell" style="width:' + (v / maxC * 46) + 'px"></span> ' + pct(v);
+          else if (k === "champion") { var ci = r.champion_ci; inner = '<span class="barcell" style="width:' + (v / maxC * 46) + 'px"></span> <span' + (ci && ci.lo != null ? ' title="90% CI ' + pct(ci.lo) + '–' + pct(ci.hi) + ' (goal-level parameter uncertainty)"' : '') + '>' + pct(v) + '</span>'; }
           else inner = pct(v);
           return '<td data-th="' + esc(c[1]) + '">' + inner + "</td>";
         }).join("") + "</tr>";
@@ -428,16 +433,16 @@
     var cols = [["team", "Team", "s"], ["elo", "Elo", "n"], ["attack", "Attack", "n"], ["defense", "Defense", "n"], ["exp_goals_for", "Proj GF", "n"], ["exp_goals_against", "Proj GA", "n"]];
     var st = { key: "elo", dir: -1 };
     var maxE = Math.max.apply(null, rs.map(function (r) { return r.elo; })) || 1;
-    var tbl = ce("table", "tbl sticky"); tp.appendChild(tbl); wrap.appendChild(tp);
+    var tbl = ce("table", "tbl sticky cardify"); tp.appendChild(tbl); wrap.appendChild(tp);  // F2: cardify on mobile
     function draw() {
       var data = rs.slice().sort(function (a, b) { var x = a[st.key], y = b[st.key]; if (typeof x === "string") return st.dir * String(x).localeCompare(String(y)); return st.dir * ((x || 0) - (y || 0)); });
       tbl.innerHTML = sortHead(cols, st) + "<tbody>" +
         data.map(function (r) {
           return "<tr>" + cols.map(function (c) {
-            var k = c[0], v = r[k];
-            if (k === "team") return "<td>" + teamCell(r.team) + (r.host ? ' <span class="chip pos" title="co-host">host</span>' : "") + "</td>";
-            if (k === "elo") return '<td><span class="barcell" style="width:' + (v / maxE * 46) + 'px"></span> ' + v.toFixed(0) + "</td>";
-            return "<td>" + (typeof v === "number" ? v.toFixed(2) : esc(v)) + "</td>";
+            var k = c[0], v = r[k], th = ' data-th="' + esc(c[1]) + '"';  // F2: stacked-card labels
+            if (k === "team") return "<td" + th + ">" + teamCell(r.team) + (r.host ? ' <span class="chip pos" title="co-host">host</span>' : "") + "</td>";
+            if (k === "elo") return "<td" + th + '><span class="barcell" style="width:' + (v / maxE * 46) + 'px"></span> ' + v.toFixed(0) + "</td>";
+            return "<td" + th + ">" + (typeof v === "number" ? v.toFixed(2) : esc(v)) + "</td>";
           }).join("") + "</tr>";
         }).join("") + "</tbody>";
       wireSort(tbl, function (k) { st.dir = (st.key === k) ? -st.dir : (k === "team" ? 1 : -1); st.key = k; draw(); });
@@ -494,6 +499,12 @@
     var head = ce("div", "sec-head"); head.id = "conditions";
     head.innerHTML = '<h2>Conditions & logistics</h2><span class="note">venue heat (WBGT proxy) + each team\'s group-stage travel, rest, altitude & heat burden</span>';
     wrap.appendChild(head);
+    // C1: these are CONTEXTUAL displays — they describe each fixture's environment but do NOT feed
+    // the published title odds (only the host bonus + the ET-fatigue penalty move the MC). Stated
+    // here so a reader never mistakes a heat/travel display for a calibrated odds input.
+    var note = ce("div", "callout");
+    note.innerHTML = "Context only — heat, travel, rest and altitude are shown to characterise each fixture; they do <b>not</b> move the published odds (only the host-advantage bonus and the extra-time fatigue penalty are wired into the Monte Carlo). The raw style win-probability term measured ΔBrier≈0 on held-out data, so it is kept off by design.";
+    wrap.appendChild(note);
     // venue heat scale — ranked by EFFECTIVE (roof-discounted) heat-load, hot→cool (R4).
     function effLoad(v) { return v.effective_heat_load != null ? v.effective_heat_load : v.heat_load; }
     var vs = vnames.map(function (n) { return venues[n]; }).sort(function (a, b) { return effLoad(b) - effLoad(a); });
@@ -715,11 +726,21 @@
     head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown; the anchor reorders only where the market sharply disagrees (e.g. host-boosted sides)</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel");
-    p.innerHTML = '<table class="chart-table"><thead><tr><th>Team</th><th>Model</th><th>Market</th><th>Anchored</th></tr></thead><tbody>' +
+    p.innerHTML = '<table class="chart-table"><thead><tr><th>Team</th><th>Model</th><th>Market</th><th>Δ</th><th>Anchored</th></tr></thead><tbody>' +
       a.overlay.slice(0, 12).map(function (r) {
-        return '<tr><td>' + flagImg(r.team, "sm") + esc(r.team) + '</td><td>' + (r.model * 100).toFixed(1) + '%</td><td>' + (r.market * 100).toFixed(1) + '%</td><td>' + (r.anchored * 100).toFixed(1) + '%</td></tr>';
+        var d = (r.model - r.market) * 100;
+        var dcls = Math.abs(d) >= 3 ? (d > 0 ? "chip pos" : "chip neg") : "faint";
+        return '<tr><td>' + flagImg(r.team, "sm") + esc(r.team) + '</td><td>' + (r.model * 100).toFixed(1) + '%</td><td>' + (r.market * 100).toFixed(1) + '%</td><td><span class="' + dcls + '">' + (d >= 0 ? "+" : "") + d.toFixed(1) + 'pp</span></td><td>' + (r.anchored * 100).toFixed(1) + '%</td></tr>';
       }).join("") + '</tbody></table>';
     wrap.appendChild(p);
+    // C2: name the single biggest model↔market disagreement and why (host-boosted sides).
+    var big = a.overlay.slice().sort(function (x, y) { return Math.abs(y.model - y.market) - Math.abs(x.model - x.market); })[0];
+    if (big) {
+      var d0 = (big.model - big.market) * 100;
+      var why = ce("div", "callout");
+      why.innerHTML = "Biggest disagreement: the model has <b>" + esc(big.team) + "</b> at " + (big.model * 100).toFixed(1) + "% vs the market's " + (big.market * 100).toFixed(1) + "% (" + (d0 >= 0 ? "+" : "") + d0.toFixed(1) + "pp). Where the model runs hotter than the market it is usually a <b>host-boosted</b> or Elo-strong side the market discounts on tournament priors; the anchored column splits the difference.";
+      wrap.appendChild(why);
+    }
     var note = ce("p", "faint"); note.style.fontSize = "12px";
     note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); model↔anchored rank ρ=" + (a.rank_corr != null ? a.rank_corr.toFixed(2) : "—") + " (ordering largely preserved). De-vigged anchor only (no raw price mirror, no bookmaker named). Source: The Odds API.";
     wrap.appendChild(note);
@@ -933,7 +954,7 @@
 
     var g3 = ce("div", "grid2");
     var px = ce("div", "panel"); px.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Cumulative xG</h4>'; var cx = ce("div", "chart short"); px.appendChild(cx); g3.appendChild(px);
-    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· pre-match (Dixon–Coles)</span></h4>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
+    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· pre-match (Dixon–Coles)</span></h4><p class="faint" style="font-size:11px;margin:2px 0 4px">Bookmaker-style prior from Elo + Dixon–Coles before kickoff — differs from the in-running W/D/L (left) by design: that one updates on the simulated events, this is the static pre-match split. (F1)</p>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
     wrap.appendChild(g3);
     if (m.timeline) xgChart(cx, m);
 
@@ -1052,7 +1073,13 @@
 
   function drawShotMap(holder, m) {
     var d3 = window.d3; if (!d3) return; var W = 520, H = 340, pad = 10;
-    var svg = d3.select(holder).append("svg").attr("viewBox", "0 0 " + W + " " + H).attr("width", "100%").attr("class", "pitch");
+    var nShots = (m.shot_events || []).length;
+    var nGoals = (m.shot_events || []).filter(function (s) { return s.goal; }).length;
+    var svg = d3.select(holder).append("svg").attr("viewBox", "0 0 " + W + " " + H).attr("width", "100%").attr("class", "pitch")
+      // F3 a11y: the pitch SVG carries no text -> mark it role=img with a summary label.
+      .attr("role", "img")
+      .attr("aria-label", "Shot map on a football pitch: " + nShots + " shots, " + nGoals +
+        " goals; marker size is xG, stars are goals. Per-shot detail is in the box-score tables above.");
     var line = cssVar("--line-2");
     function rect(x, y, w, h) { svg.append("rect").attr("x", x).attr("y", y).attr("width", w).attr("height", h).attr("fill", "none").attr("stroke", line).attr("stroke-width", 1.2); }
     rect(pad, pad, W - 2 * pad, H - 2 * pad);
@@ -1115,8 +1142,22 @@
     if (!sd || !sd.matrix) { box.innerHTML = "<p class='faint'>n/a</p>"; return box; }
     var mat = sd.matrix, mx = Math.max.apply(null, mat.map(function (r) { return Math.max.apply(null, r); })) || 1;
     var grid = ce("div", "heatgrid"); grid.style.gridTemplateColumns = "repeat(" + mat[0].length + ",1fr)"; grid.style.maxWidth = "300px";
-    mat.forEach(function (row, i) { row.forEach(function (v, j) { var c = ce("div", "heatcell"); c.style.background = "color-mix(in srgb, var(--accent) " + (v / mx * 100).toFixed(0) + "%, var(--panel-2))"; c.textContent = i + "-" + j; c.title = n0 + " " + i + "-" + j + " " + n1 + ": " + (v * 100).toFixed(1) + "%"; grid.appendChild(c); }); });
+    // F3 a11y: the colour grid is decorative for non-sighted users -> mark it role=img with a
+    // summary label, and emit an .sr-only coded table of the same probabilities as the fallback.
+    grid.setAttribute("role", "img");
+    var topSc = (sd.top_scorelines || [])[0];
+    grid.setAttribute("aria-label", "Scoreline probability heatmap, " + esc(n0) + " goals (rows) by " +
+      esc(n1) + " goals (columns)" + (topSc ? "; most likely " + topSc.home + "–" + topSc.away +
+      " at " + (topSc.p * 100).toFixed(1) + "%" : "") + ".");
+    mat.forEach(function (row, i) { row.forEach(function (v, j) { var c = ce("div", "heatcell"); c.style.background = "color-mix(in srgb, var(--accent) " + (v / mx * 100).toFixed(0) + "%, var(--panel-2))"; c.textContent = i + "-" + j; c.title = n0 + " " + i + "-" + j + " " + n1 + ": " + (v * 100).toFixed(1) + "%"; c.setAttribute("aria-hidden", "true"); grid.appendChild(c); }); });
     box.appendChild(grid);
+    var tbl = ce("table", "sr-only");
+    tbl.innerHTML = "<caption>Scoreline probabilities (%): " + esc(n0) + " goals by row, " + esc(n1) +
+      " goals by column</caption><tbody>" + mat.map(function (row, i) {
+        return "<tr><th>" + esc(n0) + " " + i + "</th>" + row.map(function (v, j) {
+          return "<td>" + esc(n1) + " " + j + ": " + (v * 100).toFixed(1) + "%</td>"; }).join("") + "</tr>";
+      }).join("") + "</tbody>";
+    box.appendChild(tbl);
     var w = sd.wdl;
     box.appendChild(ce("div", null, '<div class="legend" style="margin-top:10px"><span><b style="background:var(--home)"></b>' + esc(n0) + " " + (w.home * 100).toFixed(0) + "%</span><span><b style='background:var(--draw)'></b>draw " + (w.draw * 100).toFixed(0) + "%</span><span><b style='background:var(--away)'></b>" + esc(n1) + " " + (w.away * 100).toFixed(0) + "%</span></div>"));
     box.appendChild(ce("div", "toplines", (sd.top_scorelines || []).slice(0, 6).map(function (t) { return '<span class="topline">' + t.home + "–" + t.away + " <b>" + (t.p * 100).toFixed(1) + "%</b></span>"; }).join("")));
@@ -1146,6 +1187,54 @@
         tr.surprises.map(function (m) { return '<div class="gb-row"><span class="who">' + flagImg(m.home, "sm") + " " + esc(m.home) + " " + esc(m.actual_score) + " " + esc(m.away) + " " + flagImg(m.away, "sm") + '</span><span class="faint" style="font-size:12px">model gave the ' + esc(m.actual) + ' ' + (m.p_actual * 100).toFixed(0) + "%</span></div>"; }).join("");
       wrap.appendChild(sp);
     }
+  }
+
+  // F3: native ECharts reliability (calibration) diagram from JSON — observed-vs-predicted with the
+  // y=x reference; point size scales with bin count. Mirrors the shot-map a11y pattern (role/aria +
+  // a "Show table" coded fallback of the same bins). Replaces the old static reliability matplotlib PNG.
+  function reliabilityPanel(cal) {
+    var bins = cal.bins || [];
+    var maxN = bins.reduce(function (m, b) { return Math.max(m, b.count); }, 1);
+    var panel = ce("div", "panel");
+    var caption = "Reliability diagram — held-out W/D/L (" + (cal.n_test || 0) +
+      " matches). Predicted probability (x) vs observed frequency (y); points on the diagonal are " +
+      "perfectly calibrated, marker size scales with bin count.";
+    var cn = ce("div"); cn.style.height = "320px"; panel.appendChild(cn);
+    mkChart(cn, Object.assign(axisTheme(), {
+      grid: { left: 8, right: 18, top: 28, bottom: 30, containLabel: true },
+      tooltip: {
+        backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"),
+        textStyle: { color: cssVar("--text") },
+        formatter: function (p) {
+          if (p.seriesName === "perfect") { return "perfect calibration (y = x)"; }
+          var d = p.data;
+          return "predicted " + (d[0] * 100).toFixed(1) + "%<br>observed " + (d[1] * 100).toFixed(1) +
+            "%<br>" + d[2] + " samples";
+        },
+      },
+      legend: { data: [cal.label || "model", "perfect"], top: 0, textStyle: { color: cssVar("--muted") } },
+      xAxis: Object.assign({ type: "value", min: 0, max: 1, name: "predicted probability",
+        nameLocation: "middle", nameGap: 24, nameTextStyle: { color: cssVar("--muted") },
+        axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
+      yAxis: Object.assign({ type: "value", min: 0, max: 1, name: "observed frequency",
+        nameLocation: "middle", nameGap: 34, nameTextStyle: { color: cssVar("--muted") },
+        axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
+      series: [
+        { name: "perfect", type: "line", data: [[0, 0], [1, 1]], showSymbol: false,
+          lineStyle: { color: cssVar("--muted"), type: "dashed", width: 1 }, silent: true, z: 1 },
+        { name: cal.label || "model", type: "line", smooth: false, z: 2,
+          symbolSize: function (v) { return 8 + 22 * (v[2] / maxN); },
+          data: bins.map(function (b) { return [b.predicted, b.observed, b.count]; }),
+          lineStyle: { color: cssVar("--accent"), width: 2 },
+          itemStyle: { color: cssVar("--accent") } },
+      ],
+    }));
+    attachChartTable(panel, cn, caption,
+      ["Predicted", "Observed", "Samples"],
+      bins.map(function (b) {
+        return [(b.predicted * 100).toFixed(1) + "%", (b.observed * 100).toFixed(1) + "%", String(b.count)];
+      }));
+    return panel;
   }
 
   // ---- MODEL -----------------------------------------------------------------------------------
@@ -1184,17 +1273,20 @@
         rm.map(function (r) { return "<tr><td>" + esc(r.metric) + "</td><td>" + r.sim + "</td><td>" + r.real + "</td><td>±" + r.tol + "</td><td>" + r.ks_p.toFixed(3) + "</td><td><span class='" + (r.pass ? "ok" : "no") + "'>" + (r.pass ? "✓" : "✕") + "</span></td></tr>"; }).join("") + "</tbody></table>";
       wrap.appendChild(rp);
     }
+    var cal = (D.model && D.model.calibration) || {};
     var figs = (D.model && D.model.figures) || [];
-    if (figs.length) {
+    if ((cal.bins && cal.bins.length) || figs.length) {
       var fh = ce("div", "sec-head"); fh.innerHTML = "<h2 class='sec-h2'>Calibration & realism diagrams</h2><span class='note'>reliability (predicted vs observed) · generated-vs-real distributions</span>"; wrap.appendChild(fh);
       var fg = ce("div", "grid2");
+      // F3: native ECharts reliability diagram drawn from JSON (replaces the old reliability.png).
+      if (cal.bins && cal.bins.length) { fg.appendChild(reliabilityPanel(cal)); }
       // U3.1: descriptive alt text (was the bare filename) so the diagrams are screen-reader legible.
-      var ALT = { "reliability.png": "Reliability diagram — the model's predicted win/draw/loss probabilities (x) plotted against the observed frequencies (y); points on the diagonal are perfectly calibrated.", "realism.png": "Realism diagram — distributions of generated vs real match statistics (shots, goals, possession) on the held-out fold; closer overlap means more realistic generated matches." };
+      var ALT = { "realism.png": "Realism diagram — distributions of generated vs real match statistics (shots, goals, possession) on the held-out fold; closer overlap means more realistic generated matches." };
       figs.forEach(function (f) { var p = ce("div", "panel"); p.innerHTML = '<img src="' + f + '" alt="' + esc(ALT[f] || f) + '" style="width:100%;border-radius:8px;background:#fff">'; fg.appendChild(p); });
       wrap.appendChild(fg);
     }
     var callout = ce("div", "panel");
-    callout.innerHTML = '<div class="callout"><b>Honest limits.</b> The Realism Engine still under-generates goals and match duration on the small open corpus — a documented data/compute ceiling, not faked. The single-match scoreline distribution on this site comes from the calibrated Prediction Engine; the generated match is the believable narrative. See <code>GATED_ITEMS.md</code> in the repo for every gated item, why, and the exact unblock.</div>';
+    callout.innerHTML = '<div class="callout"><b>Honest limits.</b> The Realism Engine now generates realistic goals and shots (the xG-grounded decode hybrid, no flat boost); the remaining gap is match <em>duration / action-count</em> — matches reach too few events on the small open corpus, a possession-horizon modeling limit, not faked. The single-match scoreline distribution on this site comes from the calibrated Prediction Engine; the generated match is the believable narrative. See <code>GATED_ITEMS.md</code> in the repo for every gated item, why, and the exact unblock.</div>';
     wrap.appendChild(callout);
   }
 
