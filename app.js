@@ -788,6 +788,49 @@
     wrap.appendChild(note);
   }
 
+  // Team-centric "Your scenarios" — pick a team, see which of its own results and which
+  // results elsewhere help or hurt its odds to advance. Reads D.rooting.by_team only.
+  function rootingTeamView(wrap) {
+    var r = D.rooting; if (!r || !r.by_team) return;
+    var byTeam = r.by_team; var teams = Object.keys(byTeam).sort();
+    if (!teams.length) return;
+    var head = ce("div", "sec-head"); head.id = "rooting-team";
+    head.innerHTML = '<h2>Your scenarios</h2><span class="note">pick your team — which of its remaining matches, and which results elsewhere, help or hurt its odds to advance</span>';
+    wrap.appendChild(head);
+    var p = ce("div", "panel");
+    var sel = '<select id="root-team" style="padding:4px;margin:0 6px">' +
+      teams.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join("") + '</select>';
+    p.innerHTML = '<div style="margin-bottom:10px"><b>Team:</b> ' + sel + '</div><div id="root-team-out"></div>';
+    wrap.appendChild(p);
+    // One scenario row: result text + signed Δ advance (and Δ round-16 if non-trivial).
+    function pts(d) { var v = d * 100; return (v >= 0 ? "+" : "") + v.toFixed(1) + " pts"; }
+    function row(e) {
+      var pos = (e.d_advance || 0) >= 0;
+      var col = pos ? "var(--good,#2e7d32)" : "var(--bad,#c62828)";
+      var bits = '<b style="color:' + col + '">' + pts(e.d_advance || 0) + '</b> advance';
+      if (e.d_round16 != null && Math.abs(e.d_round16) >= 0.005) {
+        bits += ' <span class="faint">(' + pts(e.d_round16) + ' round of 16)</span>';
+      }
+      var ci = e.ci_flag ? ' <span class="faint" title="thin / noisy bucket — interpret with caution">~ thin sample</span>' : '';
+      return '<tr><td>' + esc(e.result || rootingBucketLabel(e.home, e.away, e.bucket)) + ci +
+        '</td><td style="white-space:nowrap;text-align:right">' + bits + '</td></tr>';
+    }
+    function section(title, entries) {
+      if (!entries || !entries.length) return '';
+      return '<h3 style="margin:.6em 0 .2em">' + esc(title) + '</h3>' +
+        '<table class="chart-table"><tbody>' + entries.map(row).join("") + '</tbody></table>';
+    }
+    function render() {
+      var name = document.getElementById("root-team").value;
+      var t = byTeam[name] || {};
+      var html = section("Your matches", t.own) + section("Root for / against elsewhere", t.other);
+      if (!html) html = '<p class="faint">No impactful remaining scenarios for ' + esc(name) + '.</p>';
+      document.getElementById("root-team-out").innerHTML = html;
+    }
+    p.querySelector("#root-team").addEventListener("change", render);
+    render();
+  }
+
   // View 2 — "if it goes to pens": interpolate the precomputed shootout win-curve for any pair.
   function shootoutCurve(curve, gap) {
     var g = curve.gap, p = curve.p_a_win;
@@ -905,7 +948,7 @@
     { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
     { key: "watch", label: "Watch", panels: [pivotalView, previewsView] },
-    { key: "rooting", label: "Rooting", panels: [rootingView] },
+    { key: "rooting", label: "Rooting", panels: [rootingTeamView, rootingView] },
     { key: "shootout", label: "Shootout", panels: [shootoutView] },
     { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
