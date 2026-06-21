@@ -877,12 +877,23 @@
     var m = b.match(/^(home|away)_by_(\d\+?)$/); if (!m) return b;
     return (m[1] === "home" ? esc(home) : esc(away)) + " by " + m[2];
   }
+  // Map an unplayed fixture (home,away, either orientation) to its WC2026 schedule date so the
+  // rooting guides can read in chronological order. Built once from D.schedule.
+  var _fxDate = null;
+  function fixtureDate(home, away) {
+    if (!_fxDate) {
+      _fxDate = {};
+      (D.schedule || []).forEach(function (s) {
+        if (s.date) { _fxDate[s.home + "|" + s.away] = s.date; _fxDate[s.away + "|" + s.home] = s.date; }
+      });
+    }
+    return _fxDate[home + "|" + away] || "";
+  }
   function rootingView(wrap) {
     var r = D.rooting; if (!r || !r.fixtures || !r.fixtures.length) return;
     var head = ce("div", "sec-head"); head.id = "rooting";
-    head.innerHTML = '<h2>Rooting guide</h2><span class="note">how each upcoming result (by winner × goal-difference) swings every team’s odds to advance — pick a match</span>';
+    head.innerHTML = '<h2>Rooting guide</h2><span class="note">how each upcoming result (by winner × goal-difference) swings every team’s odds to advance — in match-date order, pick a match</span>';
     wrap.appendChild(head);
-    // Rank fixtures by their biggest single swing so the most consequential matches lead.
     function maxSwing(f) {
       var mx = 0;
       Object.keys(f.buckets || {}).forEach(function (b) {
@@ -890,9 +901,14 @@
       });
       return mx;
     }
-    var fixtures = r.fixtures.slice().sort(function (a, b) { return maxSwing(b) - maxSwing(a); }).slice(0, 16);
+    // Sort chronologically by match date; same-day fixtures fall back to biggest swing first.
+    var fixtures = r.fixtures.slice().sort(function (a, b) {
+      var da = fixtureDate(a.home, a.away) || "9999-99-99", db = fixtureDate(b.home, b.away) || "9999-99-99";
+      return da !== db ? (da < db ? -1 : 1) : maxSwing(b) - maxSwing(a);
+    }).slice(0, 16);
     fixtures.forEach(function (f) {
       var p = ce("div", "panel");
+      var fd = fixtureDate(f.home, f.away);
       var rows = Object.keys(f.buckets || {}).map(function (b) {
         var bk = f.buckets[b];
         var movers = (bk.movers || []).slice(0, 4).map(function (m) {
@@ -905,6 +921,7 @@
           ' <span class="faint">(' + (bk.p * 100).toFixed(0) + '%)</span></td><td>' + (movers || '<span class="faint">—</span>') + '</td></tr>';
       }).join("");
       p.innerHTML = '<h3 style="margin:.2em 0">' + flagImg(f.home, "sm") + esc(f.home) + ' vs ' + flagImg(f.away, "sm") + esc(f.away) +
+        (fd ? ' <span class="faint" style="font-size:var(--fs-0);font-weight:400">· ' + fmtDate(fd) + '</span>' : '') +
         '</h3><table class="chart-table"><thead><tr><th>Result</th><th>Who it helps / hurts (Δ advance)</th></tr></thead><tbody>' + rows + '</tbody></table>';
       wrap.appendChild(p);
     });
@@ -945,10 +962,17 @@
       return '<h3 style="margin:.6em 0 .2em">' + esc(title) + '</h3>' +
         '<table class="chart-table"><tbody>' + entries.map(row).join("") + '</tbody></table>';
     }
+    // Order each match list chronologically; same-day entries fall back to biggest |Δ advance|.
+    function byDate(entries) {
+      return (entries || []).slice().sort(function (a, b) {
+        var da = fixtureDate(a.home, a.away) || "9999-99-99", db = fixtureDate(b.home, b.away) || "9999-99-99";
+        return da !== db ? (da < db ? -1 : 1) : Math.abs(b.d_advance || 0) - Math.abs(a.d_advance || 0);
+      });
+    }
     function render() {
       var name = document.getElementById("root-team").value;
       var t = byTeam[name] || {};
-      var html = section("Your matches", t.own) + section("Root for / against elsewhere", t.other);
+      var html = section("Your matches", byDate(t.own)) + section("Root for / against elsewhere", byDate(t.other));
       if (!html) html = '<p class="faint">No impactful remaining scenarios for ' + esc(name) + '.</p>';
       document.getElementById("root-team-out").innerHTML = html;
     }
