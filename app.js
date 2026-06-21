@@ -384,7 +384,7 @@
 
   function distView(wrap) {
     var rd = D.round_dist; if (!rd || !Object.keys(rd).length) return;
-    var head = ce("div", "sec-head"); head.id = "dist"; head.innerHTML = '<h2>Outcome distribution</h2><span class="note">how far each contender goes, across the Monte Carlo runs</span>';
+    var head = ce("div", "sec-head"); head.id = "dist"; head.innerHTML = '<h2>Outcome distribution</h2><span class="note">how far each contender goes, across the Monte Carlo runs — expand below for one team\'s stage-by-stage reach curve</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel"); var cn = ce("div", "chart tall"); p.appendChild(cn); wrap.appendChild(p);
     var teams = (D.odds_sorted || []).slice(0, 12).reverse();
@@ -402,6 +402,33 @@
     attachChartTable(p, cn, "Outcome distribution — P(furthest stage reached) per team",
       ["Team"].concat(stages),
       teams.slice().reverse().map(function (t) { return [t].concat(stages.map(function (s) { return ((rd[t] || {})[s] || 0) * 100 < 0.05 ? "0%" : (((rd[t] || {})[s] || 0) * 100).toFixed(1) + "%"; })); }));
+
+    // Merged from the former standalone "How far does a team go?" panel: one team's reach (survival)
+    // curve — P(reach a stage) = suffix sum of round_dist (monotonically non-increasing Group→Champion)
+    // — behind a disclosure so the section leads with the all-teams overview (same round_dist source).
+    var pickTeams = (D.odds_sorted || []).filter(function (t) { return rd[t]; });
+    if (!pickTeams.length) return;
+    var det = ce("details", "exp");
+    var sm = ce("summary"); sm.textContent = "Reach probability for one team"; det.appendChild(sm);
+    var body = ce("div", "exp-body");
+    var ctrl = ce("div", "stylectrl");
+    ctrl.innerHTML = '<label>Team <select class="dsel ft">' + pickTeams.map(function (t) { return "<option>" + esc(t) + "</option>"; }).join("") + "</select></label>";
+    body.appendChild(ctrl);
+    var cf = ce("div", "chart"); body.appendChild(cf);
+    det.appendChild(body); wrap.appendChild(det);
+    function drawTeam() {
+      var t = ctrl.querySelector(".ft").value, d = rd[t] || {};
+      var reach = {}, acc = 0;
+      for (var i = stages.length - 1; i >= 0; i--) { acc += (d[stages[i]] || 0); reach[stages[i]] = acc; }
+      mkChart(cf, Object.assign(axisTheme(), {
+        grid: { left: 8, right: 16, top: 16, bottom: 6, containLabel: true },
+        tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
+        xAxis: Object.assign({ type: "category", data: stages }, axisStyle()),
+        yAxis: Object.assign({ type: "value", max: 1, axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
+        series: [{ type: "bar", data: stages.map(function (s) { return reach[s] || 0; }), itemStyle: { color: cssVar("--cb-blue") } }],
+      }));
+    }
+    ctrl.querySelector(".ft").onchange = drawTeam; drawTeam();
   }
 
   function finalsView(wrap) {
@@ -602,7 +629,7 @@
     // venue heat scale — ranked by EFFECTIVE (roof-discounted) heat-load, hot→cool (R4).
     function effLoad(v) { return v.effective_heat_load != null ? v.effective_heat_load : v.heat_load; }
     var vs = vnames.map(function (n) { return venues[n]; }).sort(function (a, b) { return effLoad(b) - effLoad(a); });
-    var vp = ce("div", "panel"); vp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Venue heat — effective in-stadium load · ▦ = roof / AC (discounted)</h4>';
+    var vp = ce("div", "panel"); vp.innerHTML = '<h4 class="mini-h" style="margin-bottom:8px">Venue heat — effective in-stadium load · ▦ = roof / AC (discounted)</h4>';
     var cn = ce("div", "chart"); vp.appendChild(cn); wrap.appendChild(vp);
     mkChart(cn, Object.assign(axisTheme(), {
       grid: { left: 8, right: 46, top: 6, bottom: 18, containLabel: true },
@@ -1016,35 +1043,8 @@
   }
 
   // Phase M: fan chart — one team's "cone of uncertainty" over the rounds it might reach.
-  function fanChartView(wrap) {
-    var rd = D.round_dist; if (!rd || !Object.keys(rd).length) return;
-    var head = ce("div", "sec-head"); head.id = "fan";
-    head.innerHTML = '<h2>How far does a team go?</h2><span class="note">pick a team — its probability of reaching each stage, across the Monte Carlo</span>';
-    wrap.appendChild(head);
-    var p = ce("div", "panel");
-    var teams = (D.odds_sorted || []).filter(function (t) { return rd[t]; });
-    var ctrl = ce("div", "stylectrl");
-    ctrl.innerHTML = '<label>Team <select class="dsel ft">' + teams.map(function (t) { return "<option>" + esc(t) + "</option>"; }).join("") + "</select></label>";
-    p.appendChild(ctrl);
-    var cn = ce("div", "chart"); p.appendChild(cn); wrap.appendChild(p);
-    var stages = ["Group", "R32", "R16", "QF", "SF", "Final", "Champion"];
-    function draw() {
-      var t = ctrl.querySelector(".ft").value, d = rd[t] || {};
-      // round_dist is P(furthest stage == s); "reaching a stage" is the suffix sum (survival curve):
-      // P(reach s) = sum of P(furthest == s') for every s' at or beyond s. Monotonically non-increasing
-      // Group(=100%) -> Champion. (Was plotting P(furthest == s), i.e. where they get knocked out.)
-      var reach = {}, acc = 0;
-      for (var i = stages.length - 1; i >= 0; i--) { acc += (d[stages[i]] || 0); reach[stages[i]] = acc; }
-      mkChart(cn, Object.assign(axisTheme(), {
-        grid: { left: 8, right: 16, top: 16, bottom: 6, containLabel: true },
-        tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
-        xAxis: Object.assign({ type: "category", data: stages }, axisStyle()),
-        yAxis: Object.assign({ type: "value", max: 1, axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
-        series: [{ type: "bar", data: stages.map(function (s) { return reach[s] || 0; }), itemStyle: { color: cssVar("--cb-blue") } }],
-      }));
-    }
-    ctrl.querySelector(".ft").onchange = draw; draw();
-  }
+  // (Former fanChartView "How far does a team go?" merged into distView as a disclosed per-team reach
+  // curve — same round_dist data — so the two reach-probability surfaces are now one. See Phase 2.)
 
   // B2: most-likely knockout matchups per stage (R32→Final) with a team filter. Reads
   // D.ko_matchups (global top matchups per stage) and D.ko_opponents_by_team (per-team conditional
@@ -1103,15 +1103,26 @@
   // A1: "Live" is a first-class group, shown only once the tournament is under way (mid-tournament
   // it is also the default sub-tab — see renderTournament). Pre-tournament it's filtered out so the
   // nav doesn't carry an empty tab.
+  // Redesign IA: one axis = "what question am I asking?". 9 sub-tabs collapsed to 6 (Watch folded
+  // into Matches; Shootout→Bracket; Rooting+Distributions→Scenarios; full time-machine canonical in
+  // Model, Live keeps only a compact movers snapshot). No view removed — see docs/SITE_REDESIGN_PLAN.md.
+  // Each sub-tab leads with its primary `panels`; secondary panels live in `more`, rendered inside a
+  // single labelled "more detail" disclosure (progressive disclosure — overview first, depth on
+  // demand). Charts inside the closed <details> lazy-render when it's opened (lazyChart observer).
   var TOUR_GROUPS = [
-    { key: "live", label: "🔴 Live", panels: [resultsView, liveScorersView, historySection], midTournamentOnly: true },
-    { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, marketAnchorView, ratingsView] },
-    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, projectedThirdsView, koMatchupsView, groupsView] },
-    { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
-    { key: "watch", label: "Watch", panels: [pivotalView, previewsView] },
-    { key: "rooting", label: "Rooting", panels: [rootingTeamView, rootingView] },
-    { key: "shootout", label: "Shootout", panels: [shootoutView] },
-    { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
+    { key: "live", label: "🔴 Live", panels: [resultsView, liveScorersView, liveMoversView], midTournamentOnly: true },
+    { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable],
+      more: [ratingsView, marketAnchorView, drawLuckView],
+      moreLabel: "Team ratings · model vs market · path difficulty" },
+    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView],
+      more: [koMatchupsView, projectedThirdsView, shootoutView],
+      moreLabel: "Knockout matchups · projected 3rd-place qualifiers · shootout simulator" },
+    { key: "scenarios", label: "Scenarios", panels: [distView, finalsView],
+      more: [upsetView, rootingTeamView, rootingView],
+      moreLabel: "Upsets & dark horses · rooting guide" },
+    { key: "awards", label: "Awards & Players", panels: [goldenBootView],
+      more: [goldenGloveView, goldenBallView, youngPlayerView, playerPropsView],
+      moreLabel: "Golden Glove · Golden Ball · Best Young Player · player props" },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
   ];
   function midTournament() { return !!(D.as_of && D.as_of.stage && D.as_of.stage !== "pre"); }
@@ -1127,6 +1138,13 @@
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
     var grp = groups[keys.indexOf(sub)];
     grp.panels.forEach(function (fn) { fn(wrap); });
+    // Progressive disclosure: secondary panels behind one labelled "more detail" expander.
+    if (grp.more && grp.more.length) {
+      var det = ce("details", "exp");
+      var s = ce("summary"); s.textContent = "More detail — " + (grp.moreLabel || ""); det.appendChild(s);
+      var body = ce("div", "exp-body"); det.appendChild(body); wrap.appendChild(det);
+      grp.more.forEach(function (fn) { fn(body); });
+    }
   }
 
   // ---- MATCH -----------------------------------------------------------------------------------
@@ -1148,20 +1166,20 @@
     if (m.passes) stats += statrow("Pass %", m.passes.home.pct, m.passes.away.pct, function (x) { return x + "%"; });
     card.innerHTML += stats;
     var sc = (m.scorers || []).map(function (g) { return '<div class="tl-goal"><span class="min">' + g.minute + "'</span> " + flagImg(g.team, "sm") + " " + esc(g.player || "—") + (g.method && g.method !== "open_play" ? ' <span class="method">(' + g.method + ")</span>" : "") + (g.assist ? ' <span class="method">assist ' + esc(g.assist) + "</span>" : "") + "</div>"; }).join("");
-    card.innerHTML += '<div style="margin-top:12px"><h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">⚽ Goals</h4><div class="timeline">' + (sc || "<p class='faint'>no goals</p>") + "</div></div>";
+    card.innerHTML += '<div style="margin-top:12px"><h4 class="mini-h">⚽ Goals</h4><div class="timeline">' + (sc || "<p class='faint'>no goals</p>") + "</div></div>";
     wrap.appendChild(card);
 
     // shot map + win prob
     var g2 = ce("div", "grid2");
-    var pm = ce("div", "panel"); pm.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Shot map <span class="faint">· size = xG · ★ = goal</span></h4>'; var pitch = ce("div"); pm.appendChild(pitch); g2.appendChild(pm);
-    var pw = ce("div", "panel"); pw.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Win / draw / loss probability <span class="faint">· in-running (Realism rollout)</span></h4><p class="faint" style="font-size:11px;margin:2px 0 4px">In-running estimate from the simulated events — differs from the pre-match Dixon–Coles split (scoreline panel) by design; this is the live model, that is the bookmaker-style prior.</p>'; var cw = ce("div", "chart short"); pw.appendChild(cw); g2.appendChild(pw);
+    var pm = ce("div", "panel"); pm.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">Shot map <span class="faint">· size = xG · ★ = goal</span></h4>'; var pitch = ce("div"); pm.appendChild(pitch); g2.appendChild(pm);
+    var pw = ce("div", "panel"); pw.innerHTML = '<h4 class="mini-h">Win / draw / loss probability <span class="faint">· in-running (Realism rollout)</span></h4><p class="faint" style="font-size:11px;margin:2px 0 4px">In-running estimate from the simulated events — differs from the pre-match Dixon–Coles split (scoreline panel) by design; this is the live model, that is the bookmaker-style prior.</p>'; var cw = ce("div", "chart short"); pw.appendChild(cw); g2.appendChild(pw);
     wrap.appendChild(g2);
     drawShotMap(pitch, m);
     if (m.timeline) winProbChart(cw, m);
 
     var g3 = ce("div", "grid2");
-    var px = ce("div", "panel"); px.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Cumulative xG</h4>'; var cx = ce("div", "chart short"); px.appendChild(cx); g3.appendChild(px);
-    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· pre-match (Dixon–Coles)</span></h4><p class="faint" style="font-size:11px;margin:2px 0 4px">Bookmaker-style prior from Elo + Dixon–Coles before kickoff — differs from the in-running W/D/L (left) by design: that one updates on the simulated events, this is the static pre-match split. (F1)</p>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
+    var px = ce("div", "panel"); px.innerHTML = '<h4 class="mini-h">Cumulative xG</h4>'; var cx = ce("div", "chart short"); px.appendChild(cx); g3.appendChild(px);
+    var pd = ce("div", "panel"); pd.innerHTML = '<h4 class="mini-h">Scoreline distribution <span class="faint">· pre-match (Dixon–Coles)</span></h4><p class="faint" style="font-size:11px;margin:2px 0 4px">Bookmaker-style prior from Elo + Dixon–Coles before kickoff — differs from the in-running W/D/L (left) by design: that one updates on the simulated events, this is the static pre-match split. (F1)</p>'; pd.appendChild(scoreDistEl(m.score_dist, n0, n1)); g3.appendChild(pd);
     wrap.appendChild(g3);
     if (m.timeline) xgChart(cx, m);
 
@@ -1250,6 +1268,10 @@
       grid.appendChild(a);
     });
     wrap.appendChild(grid);
+    // Redesign IA: "Watch" (most-pivotal upcoming fixtures + auto-written previews) folded in here —
+    // both are fixture-centric, so they live with the schedule rather than as a thin Tournament tab.
+    pivotalView(wrap);
+    previewsView(wrap);
   }
 
   function renderMatchDetail(root, key) {
@@ -1274,7 +1296,7 @@
     card.innerHTML += '<div class="statrow" style="margin-top:14px"><div class="hv">' + p.lambda_home.toFixed(2) + '</div><div class="bar"><i class="bh" style="width:' + (p.lambda_home / (p.lambda_home + p.lambda_away) * 100) + '%"></i></div><div class="lbl">Expected goals</div><div class="bar"><i class="ba" style="width:' + (p.lambda_away / (p.lambda_home + p.lambda_away) * 100) + '%"></i></div><div class="av">' + p.lambda_away.toFixed(2) + "</div></div>";
     card.innerHTML += '<div class="faint" style="text-align:center;margin-top:8px;font-size:13px">expected total ' + p.expected_total.toFixed(1) + " goals</div>";
     wrap.appendChild(card);
-    var pd = ce("div", "panel"); pd.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Scoreline distribution <span class="faint">· Dixon–Coles</span></h4>'; pd.appendChild(scoreDistEl(p, n0, n1)); wrap.appendChild(pd);
+    var pd = ce("div", "panel"); pd.innerHTML = '<h4 class="mini-h">Scoreline distribution <span class="faint">· Dixon–Coles</span></h4>'; pd.appendChild(scoreDistEl(p, n0, n1)); wrap.appendChild(pd);
     // View 1: the Realism Engine's generated box score for this fixture (from the offline slate).
     var sl = (D.realism_slate || {})[n0 + "|" + n1] || (D.realism_slate || {})[n1 + "|" + n0];
     if (sl) {
@@ -1282,7 +1304,7 @@
       var scorers = (sl.scorers || []).slice(0, 6).map(function (s) {
         return '<li>' + esc(s.player) + ' <span class="faint">(' + esc(s.team) + ") ×" + s.n + "</span></li>";
       }).join("");
-      rp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Realism Engine — typical match <span class="faint">· ' + (sl.n_sims || "") + ' sims</span>' + staleStamp("Offline GPU batch of Realism sims; regenerated only on a GPU pass, not in the live update loop.") + '</h4>' +
+      rp.innerHTML = '<h4 class="mini-h">Realism Engine — typical match <span class="faint">· ' + (sl.n_sims || "") + ' sims</span>' + staleStamp("Offline GPU batch of Realism sims; regenerated only on a GPU pass, not in the live update loop.") + '</h4>' +
         '<p style="margin:.3em 0"><b>Most likely: ' + esc(n0) + " " + sl.modal_score[0] + "–" + sl.modal_score[1] + " " + esc(n1) +
         '</b> · mean goals ' + sl.mean_goals[0].toFixed(1) + "–" + sl.mean_goals[1].toFixed(1) +
         ' · xG ' + sl.mean_xg[0].toFixed(1) + "–" + sl.mean_xg[1].toFixed(1) + "</p>" +
@@ -1410,7 +1432,7 @@
     if (s.log_loss != null) cards.appendChild(card(s.log_loss.toFixed(3), "Live log-loss", "lower is better"));
     p.appendChild(cards); wrap.appendChild(p);
     if ((tr.surprises || []).length) {
-      var sp = ce("div", "panel"); sp.innerHTML = "<h4 style='font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px'>Biggest surprises</h4>" +
+      var sp = ce("div", "panel"); sp.innerHTML = "<h4 class='mini-h' style='margin-bottom:8px'>Biggest surprises</h4>" +
         tr.surprises.map(function (m) { return '<div class="gb-row"><span class="who">' + flagImg(m.home, "sm") + " " + esc(m.home) + " " + esc(m.actual_score) + " " + esc(m.away) + " " + flagImg(m.away, "sm") + '</span><span class="faint" style="font-size:12px">model gave the ' + esc(m.actual) + ' ' + (m.p_actual * 100).toFixed(0) + "%</span></div>"; }).join("");
       wrap.appendChild(sp);
     }
@@ -1627,7 +1649,7 @@
     // match has been played, so the page leads with reality rather than a pre-tournament forecast.
     var st = gd.standings || [];
     if (st.length) {
-      var tp = ce("div", "panel"); tp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Table so far <span class="faint">· played results</span></h4>' +
+      var tp = ce("div", "panel"); tp.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">Table so far <span class="faint">· played results</span></h4>' +
         '<div class="standings"><div class="st-h">#</div><div class="st-h st-team">Team</div><div class="st-h">P</div><div class="st-h">W</div><div class="st-h">D</div><div class="st-h">L</div><div class="st-h">GF</div><div class="st-h">GA</div><div class="st-h">GD</div><div class="st-h">Pts</div>' +
         st.map(function (r, i) {
           return '<div class="st-r' + (i < 2 ? " q" : "") + '">' + (i + 1) + "</div>" +
@@ -1639,7 +1661,7 @@
     }
 
     // finish-position heat-grid (team × 1st/2nd/3rd/4th).
-    var hp = ce("div", "panel"); hp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Finish-position probability</h4>';
+    var hp = ce("div", "panel"); hp.innerHTML = '<h4 class="mini-h" style="margin-bottom:8px">Finish-position probability</h4>';
     var grid = ce("div", "posgrid");
     grid.innerHTML = '<div class="pg-h"></div><div class="pg-h">1st</div><div class="pg-h">2nd</div><div class="pg-h">3rd</div><div class="pg-h">4th</div>' +
       gd.table.map(function (r) {
@@ -1651,7 +1673,7 @@
     hp.appendChild(grid); wrap.appendChild(hp);
 
     // expected points bar.
-    var ep = ce("div", "panel"); var cn = ce("div", "chart short"); ep.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Expected group points <span class="faint">· advance / qualify odds</span></h4>'; ep.appendChild(cn); wrap.appendChild(ep);
+    var ep = ce("div", "panel"); var cn = ce("div", "chart short"); ep.innerHTML = '<h4 class="mini-h">Expected group points <span class="faint">· advance / qualify odds</span></h4>'; ep.appendChild(cn); wrap.appendChild(ep);
     mkChart(cn, Object.assign(axisTheme(), {
       grid: { left: 8, right: 60, top: 6, bottom: 18, containLabel: true },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") },
@@ -1664,13 +1686,13 @@
 
     // most-likely full tables.
     if ((gd.likely_tables || []).length) {
-      var lp = ce("div", "panel"); lp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Most-likely final tables</h4>' +
+      var lp = ce("div", "panel"); lp.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">Most-likely final tables</h4>' +
         gd.likely_tables.map(function (t) { return '<div class="gb-row"><span class="who" style="gap:6px;flex-wrap:wrap">' + t.order.map(function (nm, i) { return '<span class="faint">' + (i + 1) + ".</span> " + flagImg(nm, "sm") + " " + esc(nm); }).join(" ") + '</span><span class="v">' + (t.p * 100).toFixed(1) + "%</span></div>"; }).join("");
       wrap.appendChild(lp);
     }
     // R32 opponents by finishing slot.
     if (gd.r32_by_finish && Object.keys(gd.r32_by_finish).length) {
-      var rp = ce("div", "panel"); rp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">First knockout by finish</h4>' +
+      var rp = ce("div", "panel"); rp.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">First knockout by finish</h4>' +
         Object.keys(gd.r32_by_finish).map(function (k) { var o = gd.r32_by_finish[k]; return '<div class="gb-row"><span class="who">' + (k === "winner" ? "Group winner" : "Runner-up") + ' → ' + esc(o.slot) + '</span><span class="v faint">likely ' + (o.likely_team ? esc(o.likely_team) : "—") + "</span></div>"; }).join("");
       wrap.appendChild(rp);
     }
@@ -1754,7 +1776,7 @@
     // title-odds-over-time (top 8 tracked teams).
     var show = tracked.slice(0, 8);
     var dates = series.map(function (s) { return s.label === "baseline" ? "pre-tournament" : (s.date === "now" ? "now" : s.date); });
-    var p = ce("div", "panel"); var cn = ce("div", "chart tall"); p.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Championship odds over time</h4>'; p.appendChild(cn); wrap.appendChild(p);
+    var p = ce("div", "panel"); var cn = ce("div", "chart tall"); p.innerHTML = '<h4 class="mini-h">Championship odds over time</h4>'; p.appendChild(cn); wrap.appendChild(p);
     // U2.3: Wong palette + a 2nd channel (cycling solid/dashed/dotted line style + distinct markers).
     var dashes = ["solid", "dashed", "dotted"], marks = ["circle", "triangle", "rect", "diamond"];
     mkChart(cn, Object.assign(axisTheme(), {
@@ -1772,7 +1794,7 @@
       var movers = tracked.map(function (t) { return { team: t, d: ((now.champion || {})[t] || 0) - ((base.champion || {})[t] || 0) }; }).filter(function (r) { return Math.abs(r.d) > 1e-4; });
       movers.sort(function (a, b) { return Math.abs(b.d) - Math.abs(a.d); });
       if (movers.length) {
-        var mp = ce("div", "panel"); mp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Biggest movers vs pre-tournament</h4>' +
+        var mp = ce("div", "panel"); mp.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">Biggest movers vs pre-tournament</h4>' +
           movers.slice(0, 8).map(function (r) { return '<div class="gb-row">' + teamCell(r.team) + '<span class="v"><span class="chip ' + (r.d >= 0 ? "pos" : "neg") + '">' + (r.d >= 0 ? "+" : "") + (r.d * 100).toFixed(1) + "pp</span></span></div>"; }).join("");
         wrap.appendChild(mp);
       }
@@ -1783,7 +1805,7 @@
         var dmovers = tracked.map(function (t) { return { team: t, d: ((now.champion || {})[t] || 0) - ((prev.champion || {})[t] || 0) }; }).filter(function (r) { return Math.abs(r.d) > 1e-4; });
         dmovers.sort(function (a, b) { return Math.abs(b.d) - Math.abs(a.d); });
         if (dmovers.length) {
-          var dp = ce("div", "panel"); dp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Movers since last update</h4>' +
+          var dp = ce("div", "panel"); dp.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">Movers since last update</h4>' +
             dmovers.slice(0, 8).map(function (r) {
               var ann = lastResultFor(r.team);
               return '<div class="gb-row">' + teamCell(r.team) + '<span class="v"><span class="chip ' + (r.d >= 0 ? "pos" : "neg") + '">' + (r.d >= 0 ? "+" : "") + (r.d * 100).toFixed(1) + "pp</span>" + (ann ? ' <span class="faint" style="font-size:11px">' + ann + "</span>" : "") + "</span></div>";
@@ -1795,10 +1817,32 @@
     // snapshot browser.
     var snaps = h.snapshots || [];
     if (snaps.length) {
-      var sp = ce("div", "panel"); sp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Snapshots</h4>' +
+      var sp = ce("div", "panel"); sp.innerHTML = '<h4 class="mini-h" style="margin-bottom:6px">Snapshots</h4>' +
         snaps.slice().reverse().map(function (s) { return '<div class="gb-row"><span class="who">' + esc(s.date) + (s.canonical ? ' <span class="chip pos">baseline</span>' : "") + '</span><span class="v faint">' + (s.n_pinned ? s.n_pinned + " matches · " + esc(s.through_stage) : "pre-tournament") + " · " + esc(String(s.git_sha)) + "</span></div>"; }).join("");
       wrap.appendChild(sp);
     }
+  }
+
+  // A1 (redesign): compact "what changed" for the Live tab — championship-odds movers since the last
+  // update, with a link to the full time-machine in Model (its canonical home, so no duplication).
+  function liveMoversView(wrap) {
+    var h = D.history || {}, series = h.series || [], tracked = h.tracked || [];
+    if (series.length < 2) return;
+    var now = series[series.length - 1], prev = series[series.length - 2];
+    if (!now || !prev || now === prev) return;
+    var movers = tracked.map(function (t) { return { team: t, d: ((now.champion || {})[t] || 0) - ((prev.champion || {})[t] || 0) }; })
+      .filter(function (r) { return Math.abs(r.d) > 1e-4; });
+    if (!movers.length) return;
+    movers.sort(function (a, b) { return Math.abs(b.d) - Math.abs(a.d); });
+    var head = ce("div", "sec-head"); head.id = "live-movers";
+    head.innerHTML = '<h2>What changed</h2><span class="note">championship-odds movers since the last update — <a href="#/model">full time-machine →</a></span>';
+    wrap.appendChild(head);
+    var mp = ce("div", "panel");
+    mp.innerHTML = movers.slice(0, 8).map(function (r) {
+      var ann = lastResultFor(r.team);
+      return '<div class="gb-row">' + teamCell(r.team) + '<span class="v"><span class="chip ' + (r.d >= 0 ? "pos" : "neg") + '">' + (r.d >= 0 ? "+" : "") + (r.d * 100).toFixed(1) + "pp</span>" + (ann ? ' <span class="faint" style="font-size:var(--fs-0)">' + ann + "</span>" : "") + "</span></div>";
+    }).join("");
+    wrap.appendChild(mp);
   }
 
   // ---- router ----------------------------------------------------------------------------------
