@@ -212,6 +212,14 @@
 
   // ---- TOURNAMENT ------------------------------------------------------------------------------
   function teamCell(t) { return '<a class="team-cell" href="#/team/' + encodeURIComponent(t) + '">' + flagImg(t, "sm") + esc(t) + "</a>"; }
+  // A3: panels with no free in-tournament data source (pre-tournament projections / market odds)
+  // are explicitly stamped once the tournament is under way, so a frozen panel can never be mistaken
+  // for current. Returns "" before kickoff (it IS current then). `what` is the hover explanation.
+  function staleStamp(what) {
+    if (!midTournament()) return "";
+    return '<span class="stale-stamp" title="' + esc(what || "no free live source for this metric in-tournament") +
+      '" style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:var(--line,#e6e6e6);color:var(--muted,#777);vertical-align:middle">pre-tournament · as of kickoff</span>';
+  }
 
   // Qualification status (from groups_detail.table[].status): mathematically clinched / out / alive
   // only via the best-third race. A team that can't finish top-2 but still has a best-third path is
@@ -406,11 +414,15 @@
     head.innerHTML = '<h2>Golden Boot race</h2><span class="note">sort by</span>' +
       '<span class="seg-toggle"><button data-k="exp_goals" class="on">Projected goals</button><button data-k="p_top">P(top scorer)</button></span>';
     wrap.appendChild(head);
-    // E: mid-tournament, make explicit that this is still the pre-tournament PROJECTION — actual
-    // goals scored aren't attributed yet (the public goalscorer feed has no WC2026 entries), so a
-    // real top-scorer board can't be built without fabricating scorers. Honest caption, not a board.
+    // E/A2: mid-tournament this is a projection of the *remaining* race with goals already scored
+    // banked in (the live feed credits actual scorers). The pure actual board is the "Top scorers
+    // (actual)" panel below; this one stays a forecast of who finishes top.
+    var anyBanked = gb.some(function (g) { return (g.banked || 0) > 0; });
     if (D.as_of && D.as_of.stage && D.as_of.stage !== "pre") {
-      wrap.appendChild(ce("div", "panel", '<p class="faint" style="margin:0;font-size:13px">Pre-tournament <b>projection</b> (expected goals across the Monte Carlo), not goals scored so far — public scorer data for WC2026 isn\'t available yet, so this stays a forecast.</p>'));
+      var cap = anyBanked
+        ? 'Live <b>projection</b>: each player\'s goals already scored are banked in, plus their expected remaining goals across the Monte Carlo. The actual goals-only board is "Top scorers (actual)" on the Live tab.'
+        : 'Pre-tournament <b>projection</b> (expected goals across the Monte Carlo), not goals scored so far. The actual board appears below once players start scoring.';
+      wrap.appendChild(ce("div", "panel", '<p class="faint" style="margin:0;font-size:13px">' + cap + '</p>'));
     }
     var hs = D.headshots || {};
     var podium = ce("div", "gb-podium"); wrap.appendChild(podium);
@@ -424,13 +436,34 @@
         var primary = key === "p_top" ? (g.p_top * 100).toFixed(1) + "% top · " + g.exp_goals.toFixed(1) + " goals" : g.exp_goals.toFixed(1) + " proj. goals · " + (g.p_top * 100).toFixed(1) + "%";
         // View 3: tournament goal distribution from a Poisson(exp_goals) — P(≥3 / ≥5 goals).
         var d3 = (poissonTail(g.exp_goals, 3) * 100).toFixed(0), d5 = (poissonTail(g.exp_goals, 5) * 100).toFixed(0);
-        return '<div class="gb-row"><span class="r">' + (i + 1) + '</span>' + hsImg(g.player, hs) + '<span class="who"><span class="pn">' + esc(g.player) + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + primary + ' <span class="faint" style="font-size:11px">· ≥3: ' + d3 + "% · ≥5: " + d5 + "%</span></span></div>";
+        var bankBadge = (g.banked || 0) > 0 ? ' <span class="chip pos" title="goals already scored at WC2026, banked into the projection" style="font-size:10px;padding:0 5px">⚽ ' + g.banked + ' banked</span>' : "";
+        return '<div class="gb-row"><span class="r">' + (i + 1) + '</span>' + hsImg(g.player, hs) + '<span class="who"><span class="pn">' + esc(g.player) + bankBadge + '</span><span class="tn">' + flagImg(g.team, "sm") + esc(g.team) + '</span></span><span class="v">' + primary + ' <span class="faint" style="font-size:11px">· ≥3: ' + d3 + "% · ≥5: " + d5 + "%</span></span></div>";
       }).join("");
     }
     draw("exp_goals");
     head.querySelectorAll(".seg-toggle button").forEach(function (b) {
       b.onclick = function () { head.querySelectorAll(".seg-toggle button").forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); draw(b.dataset.k); };
     });
+  }
+
+  // A2: actual goals scored so far at WC2026 (martj42 live feed) — the honest companion to the
+  // projected Golden Boot. Refreshes every update cycle; hidden until someone has scored.
+  function liveScorersView(wrap) {
+    var ls = D.live_scorers || []; if (!ls.length) return;
+    var head = ce("div", "sec-head"); head.id = "live-scorers";
+    head.innerHTML = '<h2>Top scorers (actual)</h2><span class="note">goals scored so far at WC2026 (live feed) — the real board behind the projected Golden Boot in Awards</span>';
+    wrap.appendChild(head);
+    var hs = D.headshots || {};
+    var p = ce("div", "panel");
+    p.innerHTML = ls.slice(0, 20).map(function (s, i) {
+      return '<div class="gb-row"><span class="r">' + (i + 1) + '</span>' + hsImg(s.player, hs) +
+        '<span class="who"><span class="pn">' + esc(s.player) + '</span><span class="tn">' + flagImg(s.team, "sm") + esc(s.team) + '</span></span>' +
+        '<span class="v">' + s.goals + (s.goals === 1 ? " goal" : " goals") + "</span></div>";
+    }).join("");
+    wrap.appendChild(p);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Source: martj42/international_results goalscorers feed (own goals excluded). Players who have already scored are also credited into the Golden Boot projection in Awards.";
+    wrap.appendChild(note);
   }
 
   function ratingsView(wrap) {
@@ -627,7 +660,8 @@
   function setPieceTakers(wrap) {
     var t = D.set_piece_takers; if (!t) return;
     var teams = Object.keys(t).sort(); if (!teams.length) return;
-    var d = ce("details", "exp"); var s = ce("summary"); s.textContent = "Designated set-piece takers (EA ratings)"; d.appendChild(s);
+    var d = ce("details", "exp"); var s = ce("summary");
+    s.innerHTML = "Designated set-piece takers (EA ratings)" + staleStamp("From pre-tournament EA FC24 ratings; identities are fixed, not tracked to in-tournament form."); d.appendChild(s);
     var body = ce("div", "exp-body");
     body.innerHTML = '<table class="tbl"><thead><tr><th style="text-align:left">Team</th><th style="text-align:left">Penalty</th><th style="text-align:left">Free-kick</th></tr></thead><tbody>' +
       teams.map(function (tm) {
@@ -659,7 +693,8 @@
   function goldenBallView(wrap) {
     var gb = (D.awards || {}).golden_ball || []; if (!gb.length) return;
     var head = ce("div", "sec-head"); head.id = "ball";
-    head.innerHTML = '<h2>🏅 Golden Ball</h2><span class="note">best player by VAEP per 90 — total on-ball value (defence included), event-covered nations</span>';
+    head.innerHTML = '<h2>🏅 Golden Ball</h2><span class="note">best player by VAEP per 90 — total on-ball value (defence included), event-covered nations</span>' +
+      staleStamp("VAEP board from the pre-tournament SPADL corpus; tracking in-tournament form needs WC2026 event data (we have scores + scorers only).");
     wrap.appendChild(head);
     var mx = gb[0].vaep_p90 || 1;
     var p = ce("div", "panel");
@@ -675,7 +710,8 @@
   function youngPlayerView(wrap) {
     var yp = (D.awards || {}).young_player || {}; var b = yp.board || []; if (!b.length) return;
     var head = ce("div", "sec-head"); head.id = "young";
-    head.innerHTML = '<h2>🌟 Best Young Player</h2><span class="note">born 2005 or later (FIFA U-21 rule) — ranked by VAEP per 90</span>';
+    head.innerHTML = '<h2>🌟 Best Young Player</h2><span class="note">born 2005 or later (FIFA U-21 rule) — ranked by VAEP per 90</span>' +
+      staleStamp("Pre-tournament VAEP projection over the Wikipedia squads; no WC2026 event data to track tournament form.");
     wrap.appendChild(head);
     var mx = b[0].vaep_p90 || 1;
     var p = ce("div", "panel");
@@ -747,7 +783,8 @@
   function marketAnchorView(wrap) {
     var a = D.odds_anchor; if (!a || !a.overlay || !a.overlay.length) return;
     var head = ce("div", "sec-head"); head.id = "market";
-    head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown; the anchor reorders only where the market sharply disagrees (e.g. host-boosted sides)</span>';
+    head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown; the anchor reorders only where the market sharply disagrees (e.g. host-boosted sides)</span>' +
+      staleStamp("Market snapshot taken pre-tournament; the free odds path excludes WC2026, so it is not refreshed in-tournament.");
     wrap.appendChild(head);
     var p = ce("div", "panel");
     p.innerHTML = '<table class="chart-table"><thead><tr><th>Team</th><th>Model</th><th>Market</th><th>Δ</th><th>Anchored</th></tr></thead><tbody>' +
@@ -972,13 +1009,67 @@
     ctrl.querySelector(".ft").onchange = draw; draw();
   }
 
+  // B2: most-likely knockout matchups per stage (R32→Final) with a team filter. Reads
+  // D.ko_matchups (global top matchups per stage) and D.ko_opponents_by_team (per-team conditional
+  // opponent + reach index). Conditioned on results — refreshes in the same conditional MC loop.
+  var KO_STAGE_LABELS = [["R32", "Round of 32"], ["R16", "Round of 16"], ["QF", "Quarter-final"], ["SF", "Semi-final"], ["Final", "Final"]];
+  function koMatchupsView(wrap) {
+    var km = D.ko_matchups || {}, kobt = D.ko_opponents_by_team || {};
+    var stages = KO_STAGE_LABELS.filter(function (s) { return (km[s[0]] || []).length; });
+    if (!stages.length) return;
+    var head = ce("div", "sec-head"); head.id = "ko-matchups";
+    head.innerHTML = '<h2>Likely knockout matchups</h2><span class="note">the most probable pairing at each stage across the Monte Carlo — pick a stage, or filter to one team to see who it most likely meets and when</span>';
+    wrap.appendChild(head);
+    var teams = Object.keys(kobt).sort();
+    var ctrl = ce("div", "panel");
+    var tabs = stages.map(function (s, i) { return '<button data-st="' + s[0] + '" class="' + (i === 0 ? "on" : "") + '">' + esc(s[1]) + "</button>"; }).join("");
+    var teamSel = '<select id="ko-team" style="padding:4px;margin:0 6px"><option value="">— all matchups —</option>' +
+      teams.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join("") + "</select>";
+    ctrl.innerHTML = '<div class="seg-toggle ko-tabs" style="margin-bottom:8px">' + tabs + '</div>' +
+      '<div style="margin-bottom:6px"><b>Filter team:</b> ' + teamSel + '</div>';
+    wrap.appendChild(ctrl);
+    var out = ce("div", "panel"); wrap.appendChild(out);
+    var st = { stage: stages[0][0] };
+    function labelFor(code) { for (var i = 0; i < KO_STAGE_LABELS.length; i++) if (KO_STAGE_LABELS[i][0] === code) return KO_STAGE_LABELS[i][1]; return code; }
+    function drawGlobal() {
+      var rows = (km[st.stage] || []).slice(0, 16);
+      if (!rows.length) { out.innerHTML = '<p class="faint">No matchups recorded at this stage.</p>'; return; }
+      out.innerHTML = '<table class="chart-table"><thead><tr><th>Matchup</th><th style="text-align:right">P(occurs)</th></tr></thead><tbody>' +
+        rows.map(function (m) {
+          return '<tr><td>' + teamCell(m.a) + ' <span class="faint">vs</span> ' + teamCell(m.b) + '</td><td style="text-align:right">' + (m.p * 100).toFixed(1) + "%</td></tr>";
+        }).join("") + "</tbody></table>" +
+        '<p class="faint" style="font-size:12px">P(occurs) = share of simulated tournaments in which exactly this pairing is played at the ' + esc(labelFor(st.stage)) + " stage.</p>";
+    }
+    function drawTeam(name) {
+      var e = kobt[name]; if (!e) { out.innerHTML = '<p class="faint">No knockout data for ' + esc(name) + '.</p>'; return; }
+      var pr = e.p_reach || {}, ops = e.opponents || {};
+      var rows = KO_STAGE_LABELS.filter(function (s) { return (km[s[0]] || []).length; }).map(function (s) {
+        var code = s[0], reach = pr[code] || 0, opp = (ops[code] || [])[0];
+        var oppCell = opp ? teamCell(opp.opp) + ' <span class="faint">' + (opp.p * 100).toFixed(0) + '% if reached</span>' : '<span class="faint">—</span>';
+        return '<tr><td>' + esc(s[1]) + '</td><td>' + (reach * 100).toFixed(1) + '%</td><td>' + oppCell + '</td></tr>';
+      }).join("");
+      out.innerHTML = '<h3 style="margin:.2em 0 .5em">' + flagImg(name, "sm") + esc(name) + ' — most likely opponent by stage</h3>' +
+        '<table class="chart-table"><thead><tr><th>Stage</th><th>P(reach)</th><th>Most likely opponent</th></tr></thead><tbody>' + rows + "</tbody></table>" +
+        '<p class="faint" style="font-size:12px">P(reach) is over all simulated tournaments; the opponent probability is conditional on ' + esc(name) + " reaching that stage.</p>";
+    }
+    function render() {
+      var name = document.getElementById("ko-team").value;
+      if (name) drawTeam(name); else drawGlobal();
+    }
+    ctrl.querySelectorAll(".ko-tabs button").forEach(function (b) {
+      b.onclick = function () { ctrl.querySelectorAll(".ko-tabs button").forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); st.stage = b.dataset.st; if (!document.getElementById("ko-team").value) drawGlobal(); };
+    });
+    ctrl.querySelector("#ko-team").addEventListener("change", render);
+    render();
+  }
+
   // A1: "Live" is a first-class group, shown only once the tournament is under way (mid-tournament
   // it is also the default sub-tab — see renderTournament). Pre-tournament it's filtered out so the
   // nav doesn't carry an empty tab.
   var TOUR_GROUPS = [
-    { key: "live", label: "🔴 Live", panels: [resultsView, historySection], midTournamentOnly: true },
+    { key: "live", label: "🔴 Live", panels: [resultsView, liveScorersView, historySection], midTournamentOnly: true },
     { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, marketAnchorView, ratingsView] },
-    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
+    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, koMatchupsView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
     { key: "watch", label: "Watch", panels: [pivotalView, previewsView] },
     { key: "rooting", label: "Rooting", panels: [rootingTeamView, rootingView] },
@@ -1154,7 +1245,7 @@
       var scorers = (sl.scorers || []).slice(0, 6).map(function (s) {
         return '<li>' + esc(s.player) + ' <span class="faint">(' + esc(s.team) + ") ×" + s.n + "</span></li>";
       }).join("");
-      rp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Realism Engine — typical match <span class="faint">· ' + (sl.n_sims || "") + ' sims</span></h4>' +
+      rp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Realism Engine — typical match <span class="faint">· ' + (sl.n_sims || "") + ' sims</span>' + staleStamp("Offline GPU batch of Realism sims; regenerated only on a GPU pass, not in the live update loop.") + '</h4>' +
         '<p style="margin:.3em 0"><b>Most likely: ' + esc(n0) + " " + sl.modal_score[0] + "–" + sl.modal_score[1] + " " + esc(n1) +
         '</b> · mean goals ' + sl.mean_goals[0].toFixed(1) + "–" + sl.mean_goals[1].toFixed(1) +
         ' · xG ' + sl.mean_xg[0].toFixed(1) + "–" + sl.mean_xg[1].toFixed(1) + "</p>" +
