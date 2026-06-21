@@ -956,12 +956,17 @@
     var stages = ["Group", "R32", "R16", "QF", "SF", "Final", "Champion"];
     function draw() {
       var t = ctrl.querySelector(".ft").value, d = rd[t] || {};
+      // round_dist is P(furthest stage == s); "reaching a stage" is the suffix sum (survival curve):
+      // P(reach s) = sum of P(furthest == s') for every s' at or beyond s. Monotonically non-increasing
+      // Group(=100%) -> Champion. (Was plotting P(furthest == s), i.e. where they get knocked out.)
+      var reach = {}, acc = 0;
+      for (var i = stages.length - 1; i >= 0; i--) { acc += (d[stages[i]] || 0); reach[stages[i]] = acc; }
       mkChart(cn, Object.assign(axisTheme(), {
         grid: { left: 8, right: 16, top: 16, bottom: 6, containLabel: true },
         tooltip: { trigger: "axis", valueFormatter: function (v) { return (v * 100).toFixed(1) + "%"; }, backgroundColor: cssVar("--panel"), borderColor: cssVar("--line"), textStyle: { color: cssVar("--text") } },
         xAxis: Object.assign({ type: "category", data: stages }, axisStyle()),
         yAxis: Object.assign({ type: "value", max: 1, axisLabel: { formatter: function (v) { return (v * 100).toFixed(0) + "%"; } } }, axisStyle()),
-        series: [{ type: "bar", data: stages.map(function (s) { return d[s] || 0; }), itemStyle: { color: cssVar("--cb-blue") } }],
+        series: [{ type: "bar", data: stages.map(function (s) { return reach[s] || 0; }), itemStyle: { color: cssVar("--cb-blue") } }],
       }));
     }
     ctrl.querySelector(".ft").onchange = draw; draw();
