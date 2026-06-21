@@ -388,6 +388,12 @@
     head.innerHTML = '<h2>Golden Boot race</h2><span class="note">sort by</span>' +
       '<span class="seg-toggle"><button data-k="exp_goals" class="on">Projected goals</button><button data-k="p_top">P(top scorer)</button></span>';
     wrap.appendChild(head);
+    // E: mid-tournament, make explicit that this is still the pre-tournament PROJECTION — actual
+    // goals scored aren't attributed yet (the public goalscorer feed has no WC2026 entries), so a
+    // real top-scorer board can't be built without fabricating scorers. Honest caption, not a board.
+    if (D.as_of && D.as_of.stage && D.as_of.stage !== "pre") {
+      wrap.appendChild(ce("div", "panel", '<p class="faint" style="margin:0;font-size:13px">Pre-tournament <b>projection</b> (expected goals across the Monte Carlo), not goals scored so far — public scorer data for WC2026 isn\'t available yet, so this stays a forecast.</p>'));
+    }
     var hs = D.headshots || {};
     var podium = ce("div", "gb-podium"); wrap.appendChild(podium);
     var p = ce("div", "panel"); wrap.appendChild(p);
@@ -1045,7 +1051,7 @@
   function renderMatches(root, date) {
     var wrap = ce("div", "wrap"); root.appendChild(wrap);
     var sched = D.schedule || [], dates = scheduleDates();
-    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Matches</h2><span class="note">real WC2026 group-stage fixtures · model prediction per match · click a match for detail</span>';
+    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Matches</h2><span class="note">real WC2026 group-stage fixtures · full-time score for played matches, model prediction for upcoming · click for detail</span>';
     wrap.appendChild(head);
 
     // Featured (fully-simulated) match highlight.
@@ -1072,12 +1078,24 @@
     var grid = ce("div", "matchgrid");
     todays.forEach(function (o) {
       var f = o.f, p = f.pred.wdl, fav = p.home >= p.away ? f.home : f.away, favp = Math.max(p.home, p.away);
-      var a = ce("a", "matchcard"); a.href = "#/match/" + o.i;
-      a.innerHTML =
-        '<div class="mc-city">' + esc(f.city || "") + tierChip(p) + "</div>" +
-        '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + "</span><span class='faint'>v</span><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
-        wdlBar(p) +
-        '<div class="mc-fav faint">' + esc(fav) + " " + (favp * 100).toFixed(0) + "% · xG " + f.pred.lambda_home.toFixed(1) + "–" + f.pred.lambda_away.toFixed(1) + "</div>";
+      var a = ce("a", "matchcard" + (f.played ? " played" : "")); a.href = "#/match/" + o.i;
+      if (f.played && f.result) {
+        // A: a played match shows the actual full-time score + whether the model's pre-match call hit.
+        var rs = f.result;
+        var favOut = (p.home >= p.draw && p.home >= p.away) ? "home"
+          : (p.away >= p.draw && p.away >= p.home) ? "away" : "draw";
+        var called = favOut === rs.outcome;
+        a.innerHTML =
+          '<div class="mc-city">' + esc(f.city || "") + '<span class="chip ' + (called ? "pos" : "neg") + '" style="margin-left:auto">' + (called ? "✓ called" : "✗ missed") + "</span></div>" +
+          '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + '</span><b class="mc-score">' + rs.home_goals + "–" + rs.away_goals + "</b><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
+          '<div class="mc-fav faint">Full time · pre-match ' + esc(fav) + " " + (favp * 100).toFixed(0) + "% win</div>";
+      } else {
+        a.innerHTML =
+          '<div class="mc-city">' + esc(f.city || "") + tierChip(p) + "</div>" +
+          '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + "</span><span class='faint'>v</span><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
+          wdlBar(p) +
+          '<div class="mc-fav faint">' + esc(fav) + " " + (favp * 100).toFixed(0) + "% · xG " + f.pred.lambda_home.toFixed(1) + "–" + f.pred.lambda_away.toFixed(1) + "</div>";
+      }
       grid.appendChild(a);
     });
     wrap.appendChild(grid);
@@ -1089,8 +1107,16 @@
     var idx = +key, f = (D.schedule || [])[idx];
     if (!f) { wrap.innerHTML = '<div class="sec-head"><h2>Match</h2></div><div class="panel"><p class="faint">Match not found. <a href="#/matches">Back to matches</a></p></div>'; return; }
     var p = f.pred, n0 = f.home, n1 = f.away;
-    var head = ce("div", "sec-head"); head.innerHTML = '<a href="#/matches/' + f.date + '" class="faint" style="font-size:13px">← ' + fmtDate(f.date) + '</a><h2 style="margin-top:4px">Match prediction</h2><span class="note">' + esc(f.city || "") + " · Elo + Dixon–Coles</span>";
+    var titleTxt = f.played ? "Result &amp; pre-match prediction" : "Match prediction";
+    var head = ce("div", "sec-head"); head.innerHTML = '<a href="#/matches/' + f.date + '" class="faint" style="font-size:13px">← ' + fmtDate(f.date) + '</a><h2 style="margin-top:4px">' + titleTxt + '</h2><span class="note">' + esc(f.city || "") + " · Elo + Dixon–Coles</span>";
     wrap.appendChild(head);
+    // A: a played match leads with the actual full-time score; the prediction below becomes the
+    // "what the model said beforehand" reference rather than a forecast of a finished game.
+    if (f.played && f.result) {
+      var rb = ce("div", "panel");
+      rb.innerHTML = '<div class="match-head"><div class="side">' + flagImg(n0) + '<span class="nm">' + esc(n0) + '</span></div><div class="score" style="text-align:center">' + f.result.home_goals + " – " + f.result.away_goals + '<div class="faint" style="font-size:12px;font-weight:500;letter-spacing:0">full time</div></div><div class="side">' + flagImg(n1) + '<span class="nm">' + esc(n1) + "</span></div></div>";
+      wrap.appendChild(rb);
+    }
     var card = ce("div", "panel");
     card.innerHTML = '<div class="match-head"><div class="side">' + flagImg(n0) + '<span class="nm">' + esc(n0) + '</span></div><div class="score" style="font-size:20px;text-align:center">' + (p.wdl.home * 100).toFixed(0) + "% · " + (p.wdl.draw * 100).toFixed(0) + "% · " + (p.wdl.away * 100).toFixed(0) + '%<div class="faint" style="font-size:12px;font-weight:500;letter-spacing:0">win · draw · win</div></div><div class="side">' + flagImg(n1) + '<span class="nm">' + esc(n1) + "</span></div></div>";
     card.innerHTML += '<div style="margin-top:6px">' + wdlBar(p.wdl) + "</div>";
@@ -1445,6 +1471,21 @@
     head.innerHTML = '<a href="#/tournament" class="faint" style="font-size:13px">← tournament</a><h2 style="margin-top:4px">Group ' + esc(letter) + '</h2><span class="note">chaos index ' + (gd.chaos * 100).toFixed(0) + '% · higher = more open</span>';
     wrap.appendChild(head);
     var teams = gd.table.map(function (r) { return r.team; });
+
+    // D: the REAL table so far (played matches only) — shown above the projections once any group
+    // match has been played, so the page leads with reality rather than a pre-tournament forecast.
+    var st = gd.standings || [];
+    if (st.length) {
+      var tp = ce("div", "panel"); tp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Table so far <span class="faint">· played results</span></h4>' +
+        '<div class="standings"><div class="st-h">#</div><div class="st-h st-team">Team</div><div class="st-h">P</div><div class="st-h">W</div><div class="st-h">D</div><div class="st-h">L</div><div class="st-h">GF</div><div class="st-h">GA</div><div class="st-h">GD</div><div class="st-h">Pts</div>' +
+        st.map(function (r, i) {
+          return '<div class="st-r' + (i < 2 ? " q" : "") + '">' + (i + 1) + "</div>" +
+            '<div class="st-team">' + flagImg(r.team, "sm") + " " + esc(r.team) + "</div>" +
+            "<div>" + r.played + "</div><div>" + r.w + "</div><div>" + r.d + "</div><div>" + r.l + "</div>" +
+            "<div>" + r.gf + "</div><div>" + r.ga + "</div><div>" + (r.gd > 0 ? "+" : "") + r.gd + '</div><div class="st-pts">' + r.pts + "</div>";
+        }).join("") + "</div>";
+      wrap.appendChild(tp);
+    }
 
     // finish-position heat-grid (team × 1st/2nd/3rd/4th).
     var hp = ce("div", "panel"); hp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Finish-position probability</h4>';

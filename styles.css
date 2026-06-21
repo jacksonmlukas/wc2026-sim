@@ -238,6 +238,18 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .res-match { display: flex; align-items: center; gap: 6px; }
 .res-match strong { font-family: var(--font-disp); font-size: 17px; padding: 0 4px; }
 .res-call { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* D: real group "table so far" */
+.standings { display: grid; grid-template-columns: 22px 1fr repeat(8, 30px); align-items: center; gap: 2px 4px; font-size: 13px; }
+.standings .st-h { color: var(--muted); font-size: 11px; text-transform: uppercase; text-align: center; padding-bottom: 4px; }
+.standings .st-h.st-team { text-align: left; }
+.standings > div { text-align: center; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.standings .st-team { display: flex; align-items: center; gap: 6px; text-align: left; justify-content: flex-start; }
+.standings .st-r { color: var(--faint); font-family: var(--font-disp); font-weight: 600; }
+.standings .st-r.q { color: var(--good); }
+.standings .st-pts { font-family: var(--font-disp); font-weight: 700; color: var(--accent-2); }
+/* A: played match cards + score */
+.matchcard.played { border-color: color-mix(in srgb, var(--good) 28%, var(--line)); }
+.mc-score { font-family: var(--font-disp); font-size: 20px; font-weight: 700; padding: 0 6px; }
 
 /* ---- match ---- */
 .match-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; padding: 8px 6px 18px; }
