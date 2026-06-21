@@ -192,6 +192,7 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .chip.pos { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
 .chip.neg { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.chip.warn { background: color-mix(in srgb, var(--warn, #d98a00) 24%, transparent); color: var(--warn, #d98a00); }
 .search { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 8px 11px; font-size: 14px; min-width: 180px; }
 
 /* ---- charts ---- */

@@ -213,6 +213,24 @@
   // ---- TOURNAMENT ------------------------------------------------------------------------------
   function teamCell(t) { return '<a class="team-cell" href="#/team/' + encodeURIComponent(t) + '">' + flagImg(t, "sm") + esc(t) + "</a>"; }
 
+  // Qualification status (from groups_detail.table[].status): mathematically clinched / out / alive
+  // only via the best-third race. A team that can't finish top-2 but still has a best-third path is
+  // NOT eliminated — that's why its advance odds are small-but-nonzero, and the badge says so.
+  var STATUS_BY_TEAM = (function () {
+    var m = {}, gd = D.groups_detail || {};
+    Object.keys(gd).forEach(function (g) { (gd[g].table || []).forEach(function (r) { if (r.status) m[r.team] = r.status; }); });
+    return m;
+  })();
+  var STATUS_CFG = {
+    qualified: ["pos", "✓ Through", "Mathematically through to the knockouts (top-2 clinched)"],
+    eliminated: ["neg", "Eliminated", "No remaining path to advance — out of the tournament"],
+    third_hope: ["warn", "3rd-place hope", "Can no longer finish top-2; alive only via the best-third race (8 of 12 third-placed teams advance)"],
+  };
+  function statusBadge(team) {
+    var c = STATUS_CFG[STATUS_BY_TEAM[team]];
+    return c ? ' <span class="chip ' + c[0] + '" title="' + esc(c[2]) + '">' + c[1] + "</span>" : "";
+  }
+
   function titleTable(wrap) {
     var head = ce("div", "sec-head"); head.id = "title";
     head.innerHTML = '<h2>Title race</h2><span class="note">sortable · click a header</span><input class="search" placeholder="filter team…" aria-label="filter team">';
@@ -313,7 +331,7 @@
     Object.keys(groups).sort().forEach(function (gn) {
       var teams = groups[gn].slice().sort(function (a, b) { return (odds(b).advance || 0) - (odds(a).advance || 0); });
       var card = ce("div", "panel group"); var h = '<h4><a href="#/group/' + gn + '" class="grouplink">Group ' + gn + " →</a></h4>";
-      h += teams.map(function (t, i) { var a = odds(t).advance || 0; return '<div class="grow ' + (i < 2 ? "q" : "") + '">' + flagImg(t, "sm") + '<span class="nm">' + esc(t) + '</span><span class="qbar"><i style="width:' + (a * 100) + '%"></i></span><span class="av">' + (a * 100).toFixed(0) + "%</span></div>"; }).join("");
+      h += teams.map(function (t, i) { var a = odds(t).advance || 0; return '<div class="grow ' + (i < 2 ? "q" : "") + '">' + flagImg(t, "sm") + '<span class="nm">' + esc(t) + statusBadge(t) + '</span><span class="qbar"><i style="width:' + (a * 100) + '%"></i></span><span class="av">' + (a * 100).toFixed(0) + "%</span></div>"; }).join("");
       card.innerHTML = h; g.appendChild(card);
     });
     wrap.appendChild(g);
@@ -1480,7 +1498,7 @@
         '<div class="standings"><div class="st-h">#</div><div class="st-h st-team">Team</div><div class="st-h">P</div><div class="st-h">W</div><div class="st-h">D</div><div class="st-h">L</div><div class="st-h">GF</div><div class="st-h">GA</div><div class="st-h">GD</div><div class="st-h">Pts</div>' +
         st.map(function (r, i) {
           return '<div class="st-r' + (i < 2 ? " q" : "") + '">' + (i + 1) + "</div>" +
-            '<div class="st-team">' + flagImg(r.team, "sm") + " " + esc(r.team) + "</div>" +
+            '<div class="st-team">' + flagImg(r.team, "sm") + " " + esc(r.team) + statusBadge(r.team) + "</div>" +
             "<div>" + r.played + "</div><div>" + r.w + "</div><div>" + r.d + "</div><div>" + r.l + "</div>" +
             "<div>" + r.gf + "</div><div>" + r.ga + "</div><div>" + (r.gd > 0 ? "+" : "") + r.gd + '</div><div class="st-pts">' + r.pts + "</div>";
         }).join("") + "</div>";
