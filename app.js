@@ -276,7 +276,7 @@
   function bracketView(wrap) {
     var br = D.bracket; if (!br || !br.rounds) return;
     var head = ce("div", "sec-head"); head.id = "bracket";
-    head.innerHTML = '<h2>Predicted bracket</h2><span class="note">official R32 slot map · most-likely path · hover a team to trace it</span>';
+    head.innerHTML = '<h2>Predicted bracket</h2><span class="note">official R32 slot map · most-likely path · hover a team to trace it · <span style="border:1px dashed var(--accent);border-radius:3px;padding:0 4px;color:var(--muted)">dashed</span> = projected best-third (not yet clinched)</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel"); p.style.overflowX = "auto"; var holder = ce("div"); holder.style.minWidth = "920px"; p.appendChild(holder); wrap.appendChild(p);
     drawBracket(holder, br);
@@ -308,14 +308,21 @@
     pos.forEach(function (col, ri) {
       col.forEach(function (s) {
         var g = svg.append("g").attr("transform", "translate(" + s.x + "," + (s.y - 11) + ")").attr("class", "bk-node").style("cursor", s.cell.team ? "pointer" : "default");
-        g.append("rect").attr("width", s.w).attr("height", 22).attr("rx", 5)
+        var rect = g.append("rect").attr("width", s.w).attr("height", 22).attr("rx", 5)
           .attr("fill", ri === R - 1 ? cssVar("--panel-2") : cssVar("--panel"))
-          .attr("stroke", s.cell.team === champTeam && s.cell.team ? cssVar("--champ") : cssVar("--line")).attr("data-team", s.cell.team || "");
+          .attr("stroke", s.cell.team === champTeam && s.cell.team ? cssVar("--champ")
+            : (s.cell.projected ? cssVar("--accent") : cssVar("--line"))).attr("data-team", s.cell.team || "");
+        if (s.cell.projected) rect.attr("stroke-dasharray", "3,2");  // provisional best-third slot
         if (s.cell.team) {
           var fu = flagURL(s.cell.team, 20);
-          if (fu) g.append("image").attr("href", fu).attr("x", 6).attr("y", 5).attr("width", 16).attr("height", 11);
-          g.append("text").attr("x", 26).attr("y", 15).attr("fill", cssVar("--text")).attr("font-size", 11).attr("font-weight", 600).text(s.cell.team);
-          g.append("title").text(s.cell.team + " — " + (s.cell.champion * 100).toFixed(1) + "% title odds");
+          if (fu) g.append("image").attr("href", fu).attr("x", 6).attr("y", 5).attr("width", 16).attr("height", 11).attr("opacity", s.cell.projected ? 0.8 : 1);
+          g.append("text").attr("x", 26).attr("y", 15).attr("fill", s.cell.projected ? cssVar("--muted") : cssVar("--text")).attr("font-size", 11).attr("font-weight", 600).text(s.cell.team);
+          if (s.cell.projected) {
+            g.append("text").attr("x", s.w - 6).attr("y", 15).attr("text-anchor", "end").attr("fill", cssVar("--accent")).attr("font-size", 9).attr("font-weight", 700).text("proj");
+            g.append("title").text(s.cell.label + " — projected best-third (" + (s.cell.p_qualify * 100).toFixed(0) + "% to qualify) — not yet clinched");
+          } else {
+            g.append("title").text(s.cell.team + " — " + (s.cell.champion * 100).toFixed(1) + "% title odds");
+          }
           // U3.2: keyboard-reachable bracket nodes (tabindex + role + aria-label + focus highlight).
           g.attr("tabindex", 0).attr("role", "link").attr("class", "bk-node bk-team")
             .attr("aria-label", s.cell.team + ", " + (s.cell.champion * 100).toFixed(1) + "% title odds — open team");
@@ -329,6 +336,36 @@
         }
       });
     });
+  }
+
+  // Projected FIFA third-place ranking: each group's modal third-placed team, ranked by its odds of
+  // grabbing one of the 8 best-third spots. The top 8 are the teams filling the dashed bracket slots.
+  function projectedThirdsView(wrap) {
+    var pt = D.projected_thirds || []; if (!pt.length) return;
+    var head = ce("div", "sec-head"); head.id = "projected-thirds";
+    head.innerHTML = '<h2>Projected 3rd-place qualifiers</h2><span class="note">FIFA advances the 8 best third-placed teams across the 12 groups — each group\'s most-likely third-placer, ranked by its odds of taking one of those 8 spots</span>';
+    wrap.appendChild(head);
+    var tp = ce("div", "panel"); tp.style.overflowX = "auto";
+    var tbl = ce("table", "tbl sticky cardify"); tp.appendChild(tbl); wrap.appendChild(tp);
+    function rowHtml(r, i) {
+      var inOut = r.projected_in ? '<span class="chip pos">in</span>' : '<span class="chip neg">out</span>';
+      return '<tr><td data-th="#">' + (i + 1) + '</td><td data-th="Group">' + esc(r.group) +
+        '</td><td data-th="Team">' + teamCell(r.team) +
+        '</td><td data-th="P(3rd)">' + (r.p_third * 100).toFixed(0) +
+        '%</td><td data-th="P(qualify)">' + (r.p_qualify * 100).toFixed(0) +
+        '%</td><td data-th="Status">' + inOut + "</td></tr>";
+    }
+    var body = "";
+    pt.forEach(function (r, i) {
+      if (i === 8) body += '<tr class="sep"><td colspan="6" style="text-align:center;color:var(--muted);font-size:11px;padding:4px">— cut line · projected out ↓ —</td></tr>';
+      body += rowHtml(r, i);
+    });
+    tbl.innerHTML = '<thead><tr><th>#</th><th>Group</th><th>Team</th><th>P(3rd)</th><th>P(qualify)</th><th>Status</th></tr></thead><tbody>' + body + "</tbody>";
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Marginal projection: each group's modal third-placed team and its standalone odds of "
+      + "finishing among the top 8 thirds — not one joint draw, so the exact 8-team set varies run to run. "
+      + "The top 8 fill the dashed best-third slots in the bracket above.";
+    wrap.appendChild(note);
   }
 
   function groupsView(wrap) {
@@ -1069,7 +1106,7 @@
   var TOUR_GROUPS = [
     { key: "live", label: "🔴 Live", panels: [resultsView, liveScorersView, historySection], midTournamentOnly: true },
     { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, marketAnchorView, ratingsView] },
-    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, koMatchupsView, groupsView] },
+    { key: "bracket", label: "Bracket & Groups", panels: [bracketView, projectedThirdsView, koMatchupsView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
     { key: "watch", label: "Watch", panels: [pivotalView, previewsView] },
     { key: "rooting", label: "Rooting", panels: [rootingTeamView, rootingView] },
