@@ -943,7 +943,11 @@
     ctrl.querySelector(".ft").onchange = draw; draw();
   }
 
+  // A1: "Live" is a first-class group, shown only once the tournament is under way (mid-tournament
+  // it is also the default sub-tab — see renderTournament). Pre-tournament it's filtered out so the
+  // nav doesn't carry an empty tab.
   var TOUR_GROUPS = [
+    { key: "live", label: "🔴 Live", panels: [resultsView, historySection], midTournamentOnly: true },
     { key: "odds", label: "Odds", panels: [tournamentKpis, titleTable, marketAnchorView, ratingsView] },
     { key: "bracket", label: "Bracket & Groups", panels: [bracketView, groupsView] },
     { key: "distributions", label: "Distributions", panels: [distView, finalsView, fanChartView, upsetView, drawLuckView] },
@@ -953,15 +957,18 @@
     { key: "awards", label: "Awards", panels: [goldenBootView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView] },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
   ];
+  function midTournament() { return !!(D.as_of && D.as_of.stage && D.as_of.stage !== "pre"); }
   function renderTournament(root, sub) {
-    var keys = TOUR_GROUPS.map(function (g) { return g.key; });
-    if (!sub || keys.indexOf(sub) < 0) sub = "odds";
-    root.appendChild(sectionNav(TOUR_GROUPS.map(function (g) {
+    // Hide the Live tab until the tournament starts; mid-tournament it leads and is the default.
+    var groups = TOUR_GROUPS.filter(function (g) { return !g.midTournamentOnly || midTournament(); });
+    var keys = groups.map(function (g) { return g.key; });
+    if (!sub || keys.indexOf(sub) < 0) sub = midTournament() ? "live" : "odds";
+    root.appendChild(sectionNav(groups.map(function (g) {
       return { href: "#/tournament/" + g.key, label: g.label, key: g.key };
     }), { active: sub }));
     var wrap = ce("div", "wrap");
     root.appendChild(wrap); // attach first so ECharts containers have layout (non-zero size)
-    var grp = TOUR_GROUPS[keys.indexOf(sub)];
+    var grp = groups[keys.indexOf(sub)];
     grp.panels.forEach(function (fn) { fn(wrap); });
   }
 
@@ -1479,6 +1486,71 @@
 
   // ---- HISTORY (prediction time-machine) -------------------------------------------------------
   // U1.3: rendered as a section inside the Model page (the standalone Time-machine tab was folded in).
+  // ---- LIVE (LIVE_TRACKING A1–A4) --------------------------------------------------------------
+  // The most recent played result involving `team` (D.results is newest-first), as "A 2–1 B".
+  function lastResultFor(team) {
+    var R = D.results || [];
+    for (var i = 0; i < R.length; i++) {
+      var m = R[i];
+      if (m.home === team || m.away === team) {
+        return esc(m.home) + " " + esc(String(m.score).replace("-", "–")) + " " + esc(m.away);
+      }
+    }
+    return null;
+  }
+
+  // A4: a site-wide freshness banner (built once, prepended to every view by route()). Returns null
+  // pre-tournament so the banner only appears once results condition the forecast.
+  function liveBanner() {
+    var a = D.as_of || {};
+    if (!a.n_pinned) return null;
+    var when = a.last_updated ? String(a.last_updated).slice(0, 10) : "";
+    var isNew = false;
+    if (a.last_updated) { var age = (Date.now() - Date.parse(a.last_updated)) / 36e5; isNew = age >= 0 && age < 2; }
+    var b = ce("div", "live-banner");
+    b.innerHTML = '<span class="lb-dot" aria-hidden="true"></span>' +
+      '<a href="#/tournament/live"><strong>Live</strong></a> · Updated ' + esc(when) + ' · ' +
+      a.n_pinned + ' match' + (a.n_pinned === 1 ? '' : 'es') + ' played · conditioned on reality' +
+      (a.next_update_hint ? ' · <span class="faint">' + esc(a.next_update_hint) + '</span>' : '') +
+      (isNew ? ' <span class="chip pos">NEW</span>' : '');
+    return b;
+  }
+
+  // A2: the played-match recap — every result, newest-first, with the model's frozen pre-match call.
+  function resultsView(wrap) {
+    var R = D.results || [];
+    var head = ce("div", "sec-head"); head.id = "live-results";
+    head.innerHTML = "<h2 class='sec-h2'>Results so far</h2><span class=\"note\">every played match with the model's frozen pre-tournament call</span>";
+    wrap.appendChild(head);
+    if (!R.length) {
+      wrap.appendChild(ce("div", "panel", '<p class="faint">No matches have been played yet. Once the tournament kicks off, every result appears here with the model\'s pre-match forecast and a ✓/✗ for whether it called the outcome.</p>'));
+      return;
+    }
+    var withCall = R.filter(function (m) { return m.called != null; });
+    var nCalled = withCall.filter(function (m) { return m.called; }).length;
+    var p = ce("div", "panel");
+    var html = withCall.length
+      ? '<p class="faint" style="margin:0 0 10px">Model called <strong>' + nCalled + "/" + withCall.length + "</strong> outcomes correctly (most-likely W/D/L vs the actual result).</p>"
+      : "";
+    // group by matchday (date); R is already newest-first so groups come out newest-first too.
+    var order = [], byDate = {};
+    R.forEach(function (m) { var d = m.date || "—"; if (!byDate[d]) { byDate[d] = []; order.push(d); } byDate[d].push(m); });
+    order.forEach(function (d) {
+      html += '<div class="md-date faint">' + esc(d) + "</div>";
+      byDate[d].forEach(function (m) {
+        var call = m.called == null ? '<span class="chip faint">no pre-match line</span>'
+          : (m.called ? '<span class="chip pos">✓ called</span>' : '<span class="chip neg">✗ missed</span>');
+        var pre = m.wdl ? '<span class="faint" style="font-size:11.5px">pre-match ' + esc(m.fav) + " " + Math.round((m.fav_p || 0) * 100) + "%</span>" : "";
+        html += '<div class="res-row">' +
+          '<span class="res-match">' + flagImg(m.home, "sm") + " " + esc(m.home) +
+          ' <strong>' + esc(m.score) + "</strong> " + esc(m.away) + " " + flagImg(m.away, "sm") + "</span>" +
+          '<span class="res-call">' + pre + " " + call + "</span></div>";
+      });
+    });
+    p.innerHTML = html;
+    wrap.appendChild(p);
+  }
+
   function historySection(wrap) {
     var h = D.history || {}; var series = h.series || [], tracked = h.tracked || [];
     var head = ce("div", "sec-head"); head.id = "m-history";
@@ -1512,6 +1584,21 @@
           movers.slice(0, 8).map(function (r) { return '<div class="gb-row">' + teamCell(r.team) + '<span class="v"><span class="chip ' + (r.d >= 0 ? "pos" : "neg") + '">' + (r.d >= 0 ? "+" : "") + (r.d * 100).toFixed(1) + "pp</span></span></div>"; }).join("");
         wrap.appendChild(mp);
       }
+      // A3: day-over-day movers (since the LAST update) — diff the last two series points, and
+      // annotate each with the most recent result involving that team that likely drove the swing.
+      var prev = series[series.length - 2];
+      if (prev && now && prev !== now) {
+        var dmovers = tracked.map(function (t) { return { team: t, d: ((now.champion || {})[t] || 0) - ((prev.champion || {})[t] || 0) }; }).filter(function (r) { return Math.abs(r.d) > 1e-4; });
+        dmovers.sort(function (a, b) { return Math.abs(b.d) - Math.abs(a.d); });
+        if (dmovers.length) {
+          var dp = ce("div", "panel"); dp.innerHTML = '<h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Movers since last update</h4>' +
+            dmovers.slice(0, 8).map(function (r) {
+              var ann = lastResultFor(r.team);
+              return '<div class="gb-row">' + teamCell(r.team) + '<span class="v"><span class="chip ' + (r.d >= 0 ? "pos" : "neg") + '">' + (r.d >= 0 ? "+" : "") + (r.d * 100).toFixed(1) + "pp</span>" + (ann ? ' <span class="faint" style="font-size:11px">' + ann + "</span>" : "") + "</span></div>";
+            }).join("");
+          wrap.appendChild(dp);
+        }
+      }
     }
     // snapshot browser.
     var snaps = h.snapshots || [];
@@ -1525,10 +1612,14 @@
   // ---- router ----------------------------------------------------------------------------------
   var ROUTES = { home: renderHome, tournament: renderTournament, model: renderModel, about: renderAbout };
   function route() {
+    // A1: mid-tournament, an empty hash lands on Live (the "what just happened" view); a user who
+    // navigates to Home explicitly still gets Home. Pre-tournament the default stays Home.
+    if (!location.hash && midTournament()) { location.hash = "#/tournament/live"; return; }
     var parts = (location.hash.replace(/^#\/?/, "") || "home").split("/");
     var name = parts[0];
     disposeCharts();
     var app = $("#app"); app.innerHTML = ""; var view = ce("div", "view active"); app.appendChild(view);
+    var banner = liveBanner(); if (banner) view.appendChild(banner);  // A4: site-wide freshness banner
     var navKey;
     if (name === "matches") { renderMatches(view, parts[1]); navKey = "matches"; }
     else if (name === "match") { renderMatchDetail(view, parts[1]); navKey = "matches"; }
