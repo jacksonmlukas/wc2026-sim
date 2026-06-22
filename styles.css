@@ -157,7 +157,8 @@ details.exp .exp-body { padding: 0 var(--space-4) var(--space-3); }
 main { padding-bottom: 80px; }
 .view { display: none; } .view.active { display: block; animation: fade .35s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.sec-head { margin: var(--space-7) 0 6px; display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+/* section rhythm: 40px above (intentional, between --space-6/7), tight 6px below to its content */
+.sec-head { margin: 40px 0 6px; display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
 .sec-head h2 { font-size: var(--fs-5); } .sec-head .note { color: var(--muted); font-size: var(--fs-1); font-family: var(--font); font-weight: 600; text-transform: none; letter-spacing: 0; }
 .panel {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -211,6 +212,19 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .chip.pos { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
 .chip.neg { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
 .chip.warn { background: color-mix(in srgb, var(--warn) 24%, transparent); color: var(--warn); }
+/* ---- rooting guide (team-first flow: stakes banner, scenarios, for/against, your matches) ---- */
+.root-banner { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  flex-wrap: wrap; padding: var(--space-3) 0 var(--space-2); border-bottom: 1px solid var(--line); margin-bottom: var(--space-2); }
+.root-now .big { font-family: var(--font-disp); font-weight: 800; font-size: var(--fs-6); color: var(--accent); }
+.panel-sub { background: color-mix(in srgb, var(--accent) 6%, transparent); border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3); margin: var(--space-2) 0; }
+.root-line { margin: 3px 0; font-size: var(--fs-1); }
+.root-h3 { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-2); }
+.root-h4 { margin: 0 0 var(--space-1); font-size: var(--fs-1); }
+.root-cols, .root-matches { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3); }
+.root-match-h { font-weight: 700; margin-bottom: var(--space-1); }
+.root-mover { white-space: nowrap; margin-right: 10px; display: inline-block; }
+.root-mover.hot { background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: var(--space-1); padding: 0 4px; }
 /* ---- selector control (canonical .control / select.dsel; .search & .stylectrl select share rules) ---- */
 .search { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: var(--space-2) 11px; font-size: var(--fs-2); min-width: 180px; }
 

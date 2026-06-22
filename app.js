@@ -889,11 +889,142 @@
     }
     return _fxDate[home + "|" + away] || "";
   }
+  // ---- Rooting helpers (R1: always pair the swing Δ with its destination odds) ----------------
+  function rootOdds(p) { return p == null ? "—" : Math.round(p * 100) + "%"; }
+  function rootPp(d) { var v = Math.round((d || 0) * 100); return (v >= 0 ? "+" : "−") + Math.abs(v); }
+  function rootCol(d) { return (d || 0) >= 0 ? "var(--good)" : "var(--bad)"; }
+  // signed Δ with its destination ("→ 53%") — the core "now → result (Δ)" cell.
+  function rootDelta(d, dest) {
+    var s = '<b style="color:' + rootCol(d) + '">' + rootPp(d) + 'pp</b>';
+    if (dest != null) s += ' <span class="faint">→</span> <b>' + rootOdds(dest) + '</b>';
+    return s;
+  }
+  function rootBar(d, maxAbs) {
+    var w = maxAbs > 0 ? Math.max(4, Math.round(Math.abs(d || 0) / maxAbs * 64)) : 4;
+    return '<span class="barcell" style="width:' + w + 'px;background:' + rootCol(d) + '"></span>';
+  }
+  function rootCi(e) {
+    return e.ci_flag ? ' <span class="faint" title="thin / noisy bucket — interpret with caution">~thin</span>' : '';
+  }
+  function rootNow(team) {
+    var b = (D.rooting.baseline || {})[team];
+    return b && b.R32 != null ? b.R32 : ((D.rooting.summary || {})[team] || {}).p_advance;
+  }
+
+  // Team-first rooting flow (R2): pick your team → ① stakes banner, ② "through if / out if"
+  // scenarios, ③ root for / against, ④ your own matches, ⑤ the full fixture guide (disclosed).
   function rootingView(wrap) {
-    var r = D.rooting; if (!r || !r.fixtures || !r.fixtures.length) return;
+    var r = D.rooting; if (!r) return;
+    var byTeam = r.by_team || {}, summary = r.summary || {};
+    var teams = Object.keys(summary).length ? Object.keys(summary) : Object.keys(byTeam);
+    teams = teams.slice().sort();
+    if (!teams.length && !(r.fixtures && r.fixtures.length)) return;
     var head = ce("div", "sec-head"); head.id = "rooting";
-    head.innerHTML = '<h2>Rooting guide</h2><span class="note">how each upcoming result (by winner × goal-difference) swings every team’s odds to advance — in match-date order, pick a match</span>';
+    head.innerHTML = '<h2>Rooting guide</h2><span class="note">pick your team — what it needs, who to root for, and how every upcoming result swings its odds to advance</span>';
     wrap.appendChild(head);
+    if (!teams.length) { rootingFixtureGuide(wrap, null); return; }  // edge: only fixture data
+
+    var p = ce("div", "panel");
+    var sel = '<select id="root-team" style="padding:4px;margin:0 6px">' +
+      teams.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join("") + '</select>';
+    p.innerHTML = '<div style="margin-bottom:10px"><b>Your team:</b> ' + sel +
+      ' <span class="faint" style="font-size:12px">pp = percentage points · <span style="color:var(--good)">green</span> helps you, <span style="color:var(--bad)">red</span> hurts · "→" is the resulting odds</span></div>' +
+      '<div id="root-out"></div>';
+    wrap.appendChild(p);
+    // ⑤ depth layer: the full fixture-by-fixture guide, filtered to the picked team, in a disclosure.
+    var det = ce("details", "exp");
+    var sm = ce("summary"); sm.textContent = "Full fixture-by-fixture guide"; det.appendChild(sm);
+    var gbody = ce("div", "exp-body"); det.appendChild(gbody); wrap.appendChild(det);
+
+    // ① stakes banner — status (groups_detail) + the current P(advance), magic-number style.
+    function banner(name) {
+      var now = rootNow(name), su = summary[name] || {};
+      var st = STATUS_BY_TEAM[name] || su.status;
+      var map = {
+        qualified: ["pos", "✅ Through", "Clinched a knockout spot"],
+        clinched: ["pos", "✅ Through", "Clinched a knockout spot"],
+        eliminated: ["neg", "❌ Eliminated", "No remaining path to advance"],
+        third_hope: ["warn", "🟡 3rd-place hope", "Alive only via the best-third race"],
+        alive: ["warn", "🟡 Alive", "Still contesting a top-2 place"]
+      };
+      var c = map[st] || map.alive;
+      return '<div class="root-banner"><div><span class="chip ' + c[0] + '">' + c[1] + '</span> ' +
+        '<span class="faint">' + esc(c[2]) + '</span></div>' +
+        '<div class="root-now"><span class="big">' + rootOdds(now) + '</span><span class="faint"> to advance now</span></div></div>';
+    }
+    // ② scenario synthesizer — "Through if… / Out if…" (+ fallback note).
+    function scenarios(name) {
+      var su = summary[name] || {};
+      var out = "";
+      if (su.through_if && su.through_if.length)
+        out += '<div class="root-line"><b style="color:var(--good)">Through if:</b> ' + esc(su.through_if.join("; ")) + '</div>';
+      if (su.out_if && su.out_if.length)
+        out += '<div class="root-line"><b style="color:var(--bad)">Out if:</b> ' + esc(su.out_if.join("; ")) + '</div>';
+      if (su.note) out += '<div class="root-line faint">' + esc(su.note) + '</div>';
+      return out ? '<div class="panel-sub">' + out + '</div>' : "";
+    }
+    // ④ your matches — each own outcome → resulting odds, best/worst flagged.
+    function yourMatches(name) {
+      var su = summary[name] || {}, ms = (su.own_matches || []).slice().sort(function (a, b) {
+        var da = fixtureDate(a.home, a.away) || "9999-99-99", db = fixtureDate(b.home, b.away) || "9999-99-99";
+        return da < db ? -1 : da > db ? 1 : 0;
+      });
+      if (!ms.length) return "";
+      var now = rootNow(name);
+      var cards = ms.map(function (m) {
+        var fd = fixtureDate(m.home, m.away);
+        var outs = [["win", "Win", m.p_win], ["draw", "Draw", m.p_draw], ["loss", "Loss", m.p_loss]];
+        var vals = outs.map(function (o) { return o[2]; }).filter(function (v) { return v != null; });
+        var best = Math.max.apply(null, vals), worst = Math.min.apply(null, vals);
+        var rows = outs.map(function (o) {
+          if (o[2] == null) return "";
+          var tag = vals.length > 1 && o[2] === best ? ' <span class="chip pos">best</span>'
+            : (vals.length > 1 && o[2] === worst ? ' <span class="chip neg">worst</span>' : '');
+          var d = now != null ? o[2] - now : null;
+          return '<tr><td>' + o[1] + tag + '</td><td style="text-align:right;white-space:nowrap">' + rootDelta(d, o[2]) + '</td></tr>';
+        }).join("");
+        return '<div class="root-match"><div class="root-match-h">vs ' + flagImg(m.opponent, "sm") + esc(m.opponent) +
+          (fd ? ' <span class="faint" style="font-weight:400;font-size:12px">· ' + fmtDate(fd) + '</span>' : '') +
+          '</div><table class="chart-table"><tbody>' + rows + '</tbody></table></div>';
+      }).join("");
+      return '<h3 class="root-h3">Your remaining matches</h3><div class="root-matches">' + cards + '</div>';
+    }
+    // ③ root for / against elsewhere — grouped, with destination odds + magnitude bars.
+    function forAgainst(name) {
+      var entries = ((byTeam[name] || {}).other || []);
+      if (!entries.length) return "";
+      var maxAbs = entries.reduce(function (mx, e) { return Math.max(mx, Math.abs(e.d_advance || 0)); }, 0);
+      function col(title, list, accent) {
+        if (!list.length) return '<div class="root-col"><h4 class="root-h4">' + title + '</h4><p class="faint" style="margin:.3em 0">— none material —</p></div>';
+        var rows = list.map(function (e) {
+          return '<tr><td>' + esc(e.result || rootingBucketLabel(e.home, e.away, e.bucket)) + rootCi(e) +
+            '</td><td style="text-align:right;white-space:nowrap">' + rootDelta(e.d_advance, e.p_advance) +
+            '</td><td style="width:70px">' + rootBar(e.d_advance, maxAbs) + '</td></tr>';
+        }).join("");
+        return '<div class="root-col"><h4 class="root-h4" style="color:' + accent + '">' + title + '</h4>' +
+          '<table class="chart-table"><tbody>' + rows + '</tbody></table></div>';
+      }
+      var fors = entries.filter(function (e) { return (e.d_advance || 0) > 0; });
+      var agst = entries.filter(function (e) { return (e.d_advance || 0) < 0; });
+      return '<h3 class="root-h3">Root elsewhere</h3><div class="root-cols">' +
+        col("✅ Root for", fors, "var(--good)") + col("🚫 Root against", agst, "var(--bad)") + '</div>';
+    }
+    function render() {
+      var name = document.getElementById("root-team").value;
+      document.getElementById("root-out").innerHTML =
+        banner(name) + scenarios(name) + yourMatches(name) + forAgainst(name);
+      rootingFixtureGuide(gbody, name);
+    }
+    p.querySelector("#root-team").addEventListener("change", render);
+    render();
+  }
+
+  // ⑤ Full fixture-by-fixture guide (depth layer, enhanced): absolute odds beside every Δ,
+  // magnitude bars, the most-pivotal result (p × |Δ|) starred, thin-sample flags, and — when a
+  // team is picked — its rows highlighted. Re-rendered on team change (sets wrap.innerHTML).
+  function rootingFixtureGuide(wrap, teamFilter) {
+    var r = D.rooting; wrap.innerHTML = "";
+    if (!r || !r.fixtures || !r.fixtures.length) return;
     function maxSwing(f) {
       var mx = 0;
       Object.keys(f.buckets || {}).forEach(function (b) {
@@ -901,83 +1032,61 @@
       });
       return mx;
     }
-    // Sort chronologically by match date; same-day fixtures fall back to biggest swing first.
-    var fixtures = r.fixtures.slice().sort(function (a, b) {
+    var fixtures = r.fixtures.slice();
+    // With a team picked, surface fixtures touching that team first, then by date.
+    fixtures.sort(function (a, b) {
+      if (teamFilter) {
+        var ta = involvesTeam(a, teamFilter) ? 0 : 1, tb = involvesTeam(b, teamFilter) ? 0 : 1;
+        if (ta !== tb) return ta - tb;
+      }
       var da = fixtureDate(a.home, a.away) || "9999-99-99", db = fixtureDate(b.home, b.away) || "9999-99-99";
       return da !== db ? (da < db ? -1 : 1) : maxSwing(b) - maxSwing(a);
-    }).slice(0, 16);
+    });
+    fixtures = fixtures.slice(0, 16);
+    function involvesTeam(f, name) {
+      if (f.home === name || f.away === name) return true;
+      return Object.keys(f.buckets || {}).some(function (b) {
+        return (f.buckets[b].movers || []).some(function (m) { return m.team === name; });
+      });
+    }
     fixtures.forEach(function (f) {
       var p = ce("div", "panel");
       var fd = fixtureDate(f.home, f.away);
+      // pivotal bucket = max P(result) × biggest |Δ| among its movers.
+      var pivotal = null, pivScore = -1;
+      Object.keys(f.buckets || {}).forEach(function (b) {
+        var bk = f.buckets[b], top = 0;
+        (bk.movers || []).forEach(function (m) { top = Math.max(top, Math.abs(m.d_advance)); });
+        var s = (bk.p || 0) * top;
+        if (s > pivScore) { pivScore = s; pivotal = b; }
+      });
       var rows = Object.keys(f.buckets || {}).map(function (b) {
         var bk = f.buckets[b];
+        var mx = (bk.movers || []).reduce(function (a, m) { return Math.max(a, Math.abs(m.d_advance)); }, 0);
         var movers = (bk.movers || []).slice(0, 4).map(function (m) {
-          var col = m.d_advance >= 0 ? "var(--good,#2e7d32)" : "var(--bad,#c62828)";
-          var sign = m.d_advance >= 0 ? "+" : "";
-          return '<span style="white-space:nowrap;margin-right:10px">' + flagImg(m.team, "sm") + esc(m.team) +
-            ' <b style="color:' + col + '">' + sign + (m.d_advance * 100).toFixed(0) + 'pp</b></span>';
+          var hot = teamFilter && m.team === teamFilter;
+          return '<span class="root-mover' + (hot ? ' hot' : '') + '">' + flagImg(m.team, "sm") + esc(m.team) +
+            ' ' + rootDelta(m.d_advance, m.p_advance) + '</span>';
         }).join("");
-        return '<tr><td style="white-space:nowrap">' + rootingBucketLabel(f.home, f.away, b) +
-          ' <span class="faint">(' + (bk.p * 100).toFixed(0) + '%)</span></td><td>' + (movers || '<span class="faint">—</span>') + '</td></tr>';
+        var thin = r.ci_min && bk.n != null && bk.n < r.ci_min;
+        var star = b === pivotal ? ' <span title="most pivotal result (likelihood × impact)">★</span>' : '';
+        return '<tr><td style="white-space:nowrap">' + rootingBucketLabel(f.home, f.away, b) + star +
+          ' <span class="faint">(' + Math.round((bk.p || 0) * 100) + '%' +
+          (thin ? ', <span title="thin / noisy bucket">~thin</span>' : '') + ')</span></td>' +
+          '<td>' + (movers || '<span class="faint">—</span>') + '</td></tr>';
       }).join("");
-      p.innerHTML = '<h3 style="margin:.2em 0">' + flagImg(f.home, "sm") + esc(f.home) + ' vs ' + flagImg(f.away, "sm") + esc(f.away) +
+      var hl = teamFilter && involvesTeam(f, teamFilter) ? ' style="border-left:3px solid var(--accent)"' : '';
+      p.setAttribute("class", "panel");
+      p.innerHTML = '<h3 style="margin:.2em 0"' + hl + '>' + flagImg(f.home, "sm") + esc(f.home) + ' vs ' + flagImg(f.away, "sm") + esc(f.away) +
         (fd ? ' <span class="faint" style="font-size:var(--fs-0);font-weight:400">· ' + fmtDate(fd) + '</span>' : '') +
-        '</h3><table class="chart-table"><thead><tr><th>Result</th><th>Who it helps / hurts (Δ advance)</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        '</h3><table class="chart-table"><thead><tr><th>Result</th><th>Who it helps / hurts (Δ → resulting odds)</th></tr></thead><tbody>' + rows + '</tbody></table>';
       wrap.appendChild(p);
     });
     var note = ce("p", "faint"); note.style.fontSize = "12px";
-    note.textContent = "Δ = change in P(advance from the group) vs the baseline, from one instrumented conditional Monte-Carlo pass (" + (r.n_sims || "") + " sims); cross-group best-third coupling included. Buckets below the sample floor are omitted.";
+    note.textContent = "Δ = change in P(advance from the group) vs each team's current odds, with the resulting odds after "
+      + "“→”, from one instrumented conditional Monte-Carlo pass (" + (r.n_sims || "") + " sims); cross-group "
+      + "best-third coupling included. ★ marks the most pivotal result (likelihood × impact). Buckets below the sample floor are omitted.";
     wrap.appendChild(note);
-  }
-
-  // Team-centric "Your scenarios" — pick a team, see which of its own results and which
-  // results elsewhere help or hurt its odds to advance. Reads D.rooting.by_team only.
-  function rootingTeamView(wrap) {
-    var r = D.rooting; if (!r || !r.by_team) return;
-    var byTeam = r.by_team; var teams = Object.keys(byTeam).sort();
-    if (!teams.length) return;
-    var head = ce("div", "sec-head"); head.id = "rooting-team";
-    head.innerHTML = '<h2>Your scenarios</h2><span class="note">pick your team — which of its remaining matches, and which results elsewhere, help or hurt its odds to advance</span>';
-    wrap.appendChild(head);
-    var p = ce("div", "panel");
-    var sel = '<select id="root-team" style="padding:4px;margin:0 6px">' +
-      teams.map(function (n) { return '<option>' + esc(n) + '</option>'; }).join("") + '</select>';
-    p.innerHTML = '<div style="margin-bottom:10px"><b>Team:</b> ' + sel + '</div><div id="root-team-out"></div>';
-    wrap.appendChild(p);
-    // One scenario row: result text + signed Δ advance (and Δ round-16 if non-trivial).
-    function pts(d) { var v = d * 100; return (v >= 0 ? "+" : "") + v.toFixed(1) + " pts"; }
-    function row(e) {
-      var pos = (e.d_advance || 0) >= 0;
-      var col = pos ? "var(--good,#2e7d32)" : "var(--bad,#c62828)";
-      var bits = '<b style="color:' + col + '">' + pts(e.d_advance || 0) + '</b> advance';
-      if (e.d_round16 != null && Math.abs(e.d_round16) >= 0.005) {
-        bits += ' <span class="faint">(' + pts(e.d_round16) + ' round of 16)</span>';
-      }
-      var ci = e.ci_flag ? ' <span class="faint" title="thin / noisy bucket — interpret with caution">~ thin sample</span>' : '';
-      return '<tr><td>' + esc(e.result || rootingBucketLabel(e.home, e.away, e.bucket)) + ci +
-        '</td><td style="white-space:nowrap;text-align:right">' + bits + '</td></tr>';
-    }
-    function section(title, entries) {
-      if (!entries || !entries.length) return '';
-      return '<h3 style="margin:.6em 0 .2em">' + esc(title) + '</h3>' +
-        '<table class="chart-table"><tbody>' + entries.map(row).join("") + '</tbody></table>';
-    }
-    // Order each match list chronologically; same-day entries fall back to biggest |Δ advance|.
-    function byDate(entries) {
-      return (entries || []).slice().sort(function (a, b) {
-        var da = fixtureDate(a.home, a.away) || "9999-99-99", db = fixtureDate(b.home, b.away) || "9999-99-99";
-        return da !== db ? (da < db ? -1 : 1) : Math.abs(b.d_advance || 0) - Math.abs(a.d_advance || 0);
-      });
-    }
-    function render() {
-      var name = document.getElementById("root-team").value;
-      var t = byTeam[name] || {};
-      var html = section("Your matches", byDate(t.own)) + section("Root for / against elsewhere", byDate(t.other));
-      if (!html) html = '<p class="faint">No impactful remaining scenarios for ' + esc(name) + '.</p>';
-      document.getElementById("root-team-out").innerHTML = html;
-    }
-    p.querySelector("#root-team").addEventListener("change", render);
-    render();
   }
 
   // View 2 — "if it goes to pens": interpolate the precomputed shootout win-curve for any pair.
@@ -1079,7 +1188,7 @@
     var stages = KO_STAGE_LABELS.filter(function (s) { return (km[s[0]] || []).length; });
     if (!stages.length) return;
     var head = ce("div", "sec-head"); head.id = "ko-matchups";
-    head.innerHTML = '<h2>Likely knockout matchups</h2><span class="note">the most probable pairing at each stage across the Monte Carlo — pick a stage, or filter to one team to see who it most likely meets and when</span>';
+    head.innerHTML = '<h2>Likely knockout matchups</h2><span class="note">the most probable pairing at each stage across the Monte Carlo — pick a stage, or filter to one team to see every opponent it could face at that stage</span>';
     wrap.appendChild(head);
     var teams = Object.keys(kobt).sort();
     var ctrl = ce("div", "panel");
@@ -1104,21 +1213,36 @@
     function drawTeam(name) {
       var e = kobt[name]; if (!e) { out.innerHTML = '<p class="faint">No knockout data for ' + esc(name) + '.</p>'; return; }
       var pr = e.p_reach || {}, ops = e.opponents || {};
-      var rows = KO_STAGE_LABELS.filter(function (s) { return (km[s[0]] || []).length; }).map(function (s) {
-        var code = s[0], reach = pr[code] || 0, opp = (ops[code] || [])[0];
-        var oppCell = opp ? teamCell(opp.opp) + ' <span class="faint">' + (opp.p * 100).toFixed(0) + '% if reached</span>' : '<span class="faint">—</span>';
-        return '<tr><td>' + esc(s[1]) + '</td><td>' + (reach * 100).toFixed(1) + '%</td><td>' + oppCell + '</td></tr>';
-      }).join("");
-      out.innerHTML = '<h3 style="margin:.2em 0 .5em">' + flagImg(name, "sm") + esc(name) + ' — most likely opponent by stage</h3>' +
-        '<table class="chart-table"><thead><tr><th>Stage</th><th>P(reach)</th><th>Most likely opponent</th></tr></thead><tbody>' + rows + "</tbody></table>" +
-        '<p class="faint" style="font-size:12px">P(reach) is over all simulated tournaments; the opponent probability is conditional on ' + esc(name) + " reaching that stage.</p>";
+      var code = st.stage, lab = labelFor(code), reach = pr[code] || 0;
+      // Stay on the selected stage and show EVERY recorded possible opponent (the full conditional
+      // distribution), sorted by likelihood — not just the single most-likely one.
+      var list = (ops[code] || []).slice().sort(function (a, b) { return b.p - a.p; });
+      var headHTML = '<h3 style="margin:.2em 0 .35em">' + flagImg(name, "sm") + esc(name) +
+        ' — possible ' + esc(lab) + ' opponents</h3>' +
+        '<p class="faint" style="margin:.1em 0 .6em;font-size:13px">Reaches the ' + esc(lab) +
+        ' in <b>' + (reach * 100).toFixed(1) + '%</b> of simulations; opponent odds below are conditional on ' +
+        esc(name) + ' getting there.</p>';
+      if (!list.length) {
+        out.innerHTML = headHTML + '<p class="faint">No opponent breakdown recorded for ' + esc(name) +
+          ' at the ' + esc(lab) + ' stage' + (reach > 0 ? "" : " (it rarely reaches this round)") + '.</p>';
+        return;
+      }
+      var mx = list[0].p || 1;
+      out.innerHTML = headHTML +
+        '<table class="chart-table"><thead><tr><th>Possible opponent</th><th style="text-align:right">P(meet · if reached)</th></tr></thead><tbody>' +
+        list.map(function (o) {
+          return '<tr><td>' + teamCell(o.opp) + '</td><td style="text-align:right"><span class="barcell" style="width:' +
+            (o.p / mx * 46).toFixed(0) + 'px;margin-right:6px"></span>' + (o.p * 100).toFixed(1) + "%</td></tr>";
+        }).join("") + "</tbody></table>" +
+        '<p class="faint" style="font-size:12px">Switch stage tabs above to see ' + esc(name) +
+        "'s possible opponents at each round. Probabilities are conditional on reaching the stage shown.</p>";
     }
     function render() {
       var name = document.getElementById("ko-team").value;
       if (name) drawTeam(name); else drawGlobal();
     }
     ctrl.querySelectorAll(".ko-tabs button").forEach(function (b) {
-      b.onclick = function () { ctrl.querySelectorAll(".ko-tabs button").forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); st.stage = b.dataset.st; if (!document.getElementById("ko-team").value) drawGlobal(); };
+      b.onclick = function () { ctrl.querySelectorAll(".ko-tabs button").forEach(function (x) { x.classList.remove("on"); }); b.classList.add("on"); st.stage = b.dataset.st; render(); };
     });
     ctrl.querySelector("#ko-team").addEventListener("change", render);
     render();
@@ -1142,7 +1266,7 @@
       more: [koMatchupsView, projectedThirdsView, shootoutView],
       moreLabel: "Knockout matchups · projected 3rd-place qualifiers · shootout simulator" },
     { key: "scenarios", label: "Scenarios", panels: [distView, finalsView],
-      more: [upsetView, rootingTeamView, rootingView],
+      more: [upsetView, rootingView],
       moreLabel: "Upsets & dark horses · rooting guide" },
     { key: "awards", label: "Awards & Players", panels: [goldenBootView],
       more: [goldenGloveView, goldenBallView, youngPlayerView, playerPropsView],
