@@ -843,13 +843,40 @@
     if (dh) kpis.appendChild(kpi("Top dark-horse", esc(dh.team), (dh.qf * 100).toFixed(0) + "% reach QF"));
     wrap.appendChild(kpis);
   }
-  // L-B9: model-vs-market overlay — only renders when an Odds-API key produced odds_anchor.json.
+  // Model vs market — ESPN-plan E1 live scorecard ("beating DraftKings?") + L-B9/E2 champion anchor.
   function marketAnchorView(wrap) {
-    var a = D.odds_anchor; if (!a || !a.overlay || !a.overlay.length) return;
+    var a = D.odds_anchor, sc = D.market_scorecard;
+    var hasAnchor = a && a.overlay && a.overlay.length;
+    var hasCard = sc && sc.available && sc.matches && sc.matches.length;
+    if (!hasAnchor && !hasCard) return;
     var head = ce("div", "sec-head"); head.id = "market";
-    head.innerHTML = '<h2>Model vs market</h2><span class="note">champion odds anchored toward de-vigged sharp consensus — both shown; the anchor reorders only where the market sharply disagrees (e.g. host-boosted sides)</span>' +
-      staleStamp("Market snapshot taken pre-tournament; the free odds path excludes WC2026, so it is not refreshed in-tournament.");
+    head.innerHTML = '<h2>Model vs market</h2><span class="note">model W/D/L scored against DraftKings’ de-vigged 1X2 and the actual result — are we beating the closing line?</span>';
     wrap.appendChild(head);
+    // E1: per-match scorecard from ESPN-derived market lines (refreshes in-tournament).
+    if (hasCard) {
+      var mm = sc.metrics, gap = sc.gap_model_minus_market;
+      var verdict = ce("div", "callout");
+      verdict.innerHTML = "Over <b>" + sc.n + "</b> completed match" + (sc.n === 1 ? "" : "es") +
+        ": model Brier <b>" + mm.model.brier.toFixed(3) + "</b> vs market <b>" + mm.market.brier.toFixed(3) +
+        "</b> (" + (gap.brier >= 0 ? "+" : "") + gap.brier.toFixed(3) + ") — " +
+        (sc.beating_market_brier ? "the model is <b>beating</b> the closing line." : "the model trails the closing line.");
+      wrap.appendChild(verdict);
+      var pc = ce("div", "panel");
+      pc.innerHTML = '<table class="chart-table"><thead><tr><th>Match</th><th>Result</th><th>Model H/D/A</th><th>Market H/D/A</th></tr></thead><tbody>' +
+        sc.matches.slice(0, 16).map(function (r) {
+          function pct(t) { return (t * 100).toFixed(0) + "%"; }
+          return '<tr><td>' + flagImg(r.home, "sm") + esc(r.home) + ' v ' + esc(r.away) + flagImg(r.away, "sm") +
+            '</td><td>' + esc(r.outcome) + '</td><td>' + r.model.map(pct).join(" / ") +
+            '</td><td>' + r.market.map(pct).join(" / ") + '</td></tr>';
+        }).join("") + '</tbody></table>';
+      wrap.appendChild(pc);
+      var scn = ce("p", "faint"); scn.style.fontSize = "12px";
+      scn.textContent = "Brier/log-loss/RPS (lower is better): model log-loss " + mm.model.log_loss.toFixed(3) +
+        " vs market " + mm.market.log_loss.toFixed(3) + ", RPS " + mm.model.rps.toFixed(3) + " vs " + mm.market.rps.toFixed(3) +
+        ". Market = DraftKings 1X2 de-vigged (no raw prices stored, no book named); model = shipped results-Elo + Dixon–Coles, pre-match.";
+      wrap.appendChild(scn);
+    }
+    if (!hasAnchor) return;
     var p = ce("div", "panel");
     p.innerHTML = '<table class="chart-table"><thead><tr><th>Team</th><th>Model</th><th>Market</th><th>Δ</th><th>Anchored</th></tr></thead><tbody>' +
       a.overlay.slice(0, 12).map(function (r) {
@@ -867,7 +894,38 @@
       wrap.appendChild(why);
     }
     var note = ce("p", "faint"); note.style.fontSize = "12px";
-    note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); model↔anchored rank ρ=" + (a.rank_corr != null ? a.rank_corr.toFixed(2) : "—") + " (ordering largely preserved). De-vigged anchor only (no raw price mirror, no bookmaker named). Source: The Odds API.";
+    var src = a.source === "espn_market_implied_mc"
+      ? "Market = champion odds implied by per-match 1X2/O/U run through the bracket Monte Carlo (outright futures aren’t published free, so the title line is reconstructed from match odds — internally consistent with the draw)."
+      : "Source: The Odds API.";
+    note.textContent = "Consensus distance " + a.dist_model + " → " + a.dist_anchored + " (closer); model↔anchored rank ρ=" + (a.rank_corr != null ? a.rank_corr.toFixed(2) : "—") + " (ordering largely preserved). De-vigged anchor only (no raw price mirror, no bookmaker named). " + src;
+    wrap.appendChild(note);
+  }
+
+  // ESPN-plan E4: real per-player goals/assists/minutes from ESPN lineups (the live board carries
+  // assists + minutes the martj42 goals-only feed can't). Renders only once ESPN players are ingested.
+  function livePlayersView(wrap) {
+    var P = D.espn_players;
+    if (!P || !P.available || !P.scorers || !P.scorers.length) return;
+    var head = ce("div", "sec-head"); head.id = "live-players";
+    head.innerHTML = '<h2>Live from the pitch</h2><span class="note">real goals, assists and minutes from every completed match (ESPN lineups) — not just who scored</span>';
+    wrap.appendChild(head);
+    function tbl(title, rows, cols) {
+      var p = ce("div", "panel");
+      var th = cols.map(function (c) { return '<th>' + c.label + '</th>'; }).join("");
+      p.innerHTML = '<h3 style="margin:0 0 6px">' + title + '</h3><table class="chart-table"><thead><tr><th>Player</th>' + th + '</tr></thead><tbody>' +
+        rows.slice(0, 10).map(function (r) {
+          return '<tr><td>' + flagImg(r.team, "sm") + esc(r.name) + ' <span class="faint">' + esc(r.team) + '</span></td>' +
+            cols.map(function (c) { return '<td>' + (r[c.key] != null ? r[c.key] : "—") + '</td>'; }).join("") + '</tr>';
+        }).join("") + '</tbody></table>';
+      wrap.appendChild(p);
+    }
+    tbl("Top scorers", P.scorers, [{ key: "goals", label: "G" }, { key: "assists", label: "A" }, { key: "minutes", label: "Min" }]);
+    if (P.assist_leaders && P.assist_leaders.length)
+      tbl("Assist leaders", P.assist_leaders, [{ key: "assists", label: "A" }, { key: "goals", label: "G" }, { key: "minutes", label: "Min" }]);
+    if (P.keeper_starts && P.keeper_starts.length)
+      tbl("Keepers (starts)", P.keeper_starts, [{ key: "starts", label: "Starts" }, { key: "saves", label: "Saves" }]);
+    var note = ce("p", "faint"); note.style.fontSize = "12px";
+    note.textContent = "Source: ESPN match lineups + key events (" + P.n_players + " players). Minutes from starters + substitution timings; derived stats only.";
     wrap.appendChild(note);
   }
 
@@ -1269,8 +1327,8 @@
       more: [upsetView, rootingView],
       moreLabel: "Upsets & dark horses · rooting guide" },
     { key: "awards", label: "Awards & Players", panels: [goldenBootView],
-      more: [goldenGloveView, goldenBallView, youngPlayerView, playerPropsView],
-      moreLabel: "Golden Glove · Golden Ball · Best Young Player · player props" },
+      more: [livePlayersView, goldenGloveView, goldenBallView, youngPlayerView, playerPropsView],
+      moreLabel: "Live goals/assists/minutes · Golden Glove · Golden Ball · Best Young Player · player props" },
     { key: "context", label: "Context", panels: [contextIntro, styleViewX, conditionsViewX, headToHeadViewX] },
   ];
   function midTournament() { return !!(D.as_of && D.as_of.stage && D.as_of.stage !== "pre"); }
