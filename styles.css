@@ -243,6 +243,18 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .grow.q .qbar > i { background: var(--accent); }
 .grow .av { width: 38px; text-align: right; color: var(--muted); font-size: var(--fs-micro); }
 
+/* ---- bracket slot-odds panel (click an undecided slot) ---- */
+.bk-dist { margin-top: var(--space-2); }
+.bk-dist-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--space-2); }
+.bk-dist-head b { font-size: var(--fs-2); }
+.bk-drow { display: flex; align-items: center; gap: var(--space-2); padding: 4px 6px; border-radius: 6px; font-size: var(--fs-1); }
+.bk-drow .nm { flex: 1; }
+.bk-drow .qbar { width: 120px; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+.bk-drow .qbar > i { display: block; height: 100%; background: var(--home); }
+.bk-drow .av { width: 44px; text-align: right; color: var(--muted); font-weight: 700; }
+.bk-drow.on { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.bk-drow.on .nm { font-weight: 800; } .bk-drow.on .qbar > i { background: var(--accent); }
+
 /* ---- golden boot ---- */
 .gb-podium { display: grid; grid-template-columns: repeat(3,1fr); gap: var(--space-4); margin-bottom: var(--space-4); }
 @media (max-width:700px){ .gb-podium { grid-template-columns: 1fr; } }

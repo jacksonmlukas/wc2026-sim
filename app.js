@@ -280,16 +280,43 @@
     // (played rounds advance the real winner; later rounds stay the model's most-likely path).
     // Before then it's the official-slot-map projection with provisional best-third slots.
     var note = br.source === "feed"
-      ? 'actual knockout bracket · played matches advance the real winner · unplayed rounds show the most-likely path · hover a team to trace it'
+      ? 'actual knockout bracket · played matches are locked to the real winner · a <span style="border:1px dashed var(--accent);border-radius:3px;padding:0 4px;color:var(--muted)">dashed</span> slot is undecided — it shows the most-likely team + its % to get there; click it for every team\'s odds'
       : 'official R32 slot map · most-likely path · hover a team to trace it · <span style="border:1px dashed var(--accent);border-radius:3px;padding:0 4px;color:var(--muted)">dashed</span> = projected best-third (not yet clinched)';
     head.innerHTML = '<h2>' + (br.source === "feed" ? "Knockout bracket" : "Predicted bracket") + '</h2><span class="note">' + note + '</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel"); p.style.overflowX = "auto"; var holder = ce("div"); holder.style.minWidth = "920px"; p.appendChild(holder); wrap.appendChild(p);
-    drawBracket(holder, br);
+    var dist = ce("div", "panel bk-dist"); dist.style.display = "none"; wrap.appendChild(dist);
+    drawBracket(holder, br, dist);
   }
 
-  function drawBracket(holder, br) {
+  // Knockout-round names for a bracket column code (used by the slot-odds panel).
+  function koRoundName(code) {
+    return { R32: "Round of 32", R16: "Round of 16", QF: "Quarter-final", SF: "Semi-final",
+      Final: "Final", Champion: "Champion" }[code] || code;
+  }
+  // Render the "who reaches this slot" distribution for a clicked, undecided bracket slot.
+  function showSlotDist(distEl, cell, stageCode) {
+    if (!distEl) return;
+    var cands = cell.candidates || [];
+    var title = stageCode === "Champion" ? "Who lifts the trophy?"
+      : "Who reaches this " + koRoundName(stageCode) + " slot?";
+    var rows = cands.map(function (c) {
+      var on = c.team === cell.team;
+      return '<div class="bk-drow' + (on ? " on" : "") + '">' + flagImg(c.team, "sm") +
+        '<span class="nm">' + esc(c.team) + "</span>" +
+        '<span class="qbar"><i style="width:' + (c.p * 100) + '%"></i></span>' +
+        '<span class="av">' + (c.p * 100 < 0.5 ? "<0.5" : (c.p * 100).toFixed(0)) + "%</span></div>";
+    }).join("");
+    distEl.innerHTML = '<div class="bk-dist-head"><b>' + esc(title) + "</b><span class='faint'>" +
+      cands.length + " contender" + (cands.length === 1 ? "" : "s") +
+      " · model odds to occupy this slot</span></div>" + rows;
+    distEl.style.display = "";
+    distEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function drawBracket(holder, br, distEl) {
     var d3 = window.d3; if (!d3) return;
+    var feed = br.source === "feed", names = br.names || [];
     var rounds = br.rounds, R = rounds.length, leafN = rounds[0].length;
     var W = 980, rowH = 30, H = leafN * rowH + 30, colW = W / R;
     var svg = d3.select(holder).append("svg").attr("viewBox", "0 0 " + W + " " + H).attr("width", "100%").style("height", H + "px");
@@ -313,34 +340,48 @@
     var champTeam = rounds[R - 1][0].team;
     pos.forEach(function (col, ri) {
       col.forEach(function (s) {
+        // A feed slot is "undecided" (projected) when decided===false — it shows the most-likely
+        // occupant + its reach %, and is click-through for the full slot distribution.
+        var undecided = feed ? (s.cell.decided === false) : false;
+        var prov = s.cell.projected || undecided;             // provisional look (dashed/muted)
         var g = svg.append("g").attr("transform", "translate(" + s.x + "," + (s.y - 11) + ")").attr("class", "bk-node").style("cursor", s.cell.team ? "pointer" : "default");
         var rect = g.append("rect").attr("width", s.w).attr("height", 22).attr("rx", 5)
           .attr("fill", ri === R - 1 ? cssVar("--panel-2") : cssVar("--panel"))
-          .attr("stroke", s.cell.team === champTeam && s.cell.team ? cssVar("--champ")
-            : (s.cell.projected ? cssVar("--accent") : cssVar("--line"))).attr("data-team", s.cell.team || "");
-        if (s.cell.projected) rect.attr("stroke-dasharray", "3,2");  // provisional best-third slot
+          .attr("stroke", s.cell.team === champTeam && s.cell.team && !undecided ? cssVar("--champ")
+            : (prov ? cssVar("--accent") : cssVar("--line"))).attr("data-team", s.cell.team || "");
+        if (prov) rect.attr("stroke-dasharray", "3,2");       // undecided / provisional slot
         if (s.cell.team) {
           var fu = flagURL(s.cell.team, 20);
-          if (fu) g.append("image").attr("href", fu).attr("x", 6).attr("y", 5).attr("width", 16).attr("height", 11).attr("opacity", s.cell.projected ? 0.8 : 1);
-          g.append("text").attr("x", 26).attr("y", 15).attr("fill", s.cell.projected ? cssVar("--muted") : cssVar("--text")).attr("font-size", 11).attr("font-weight", 600).text(s.cell.team);
+          if (fu) g.append("image").attr("href", fu).attr("x", 6).attr("y", 5).attr("width", 16).attr("height", 11).attr("opacity", prov ? 0.8 : 1);
+          g.append("text").attr("x", 26).attr("y", 15).attr("fill", prov ? cssVar("--muted") : cssVar("--text")).attr("font-size", 11).attr("font-weight", 600).text(s.cell.team);
+          var reachPct = Math.round((s.cell.reach || 0) * 100);
           if (s.cell.projected) {
             g.append("text").attr("x", s.w - 6).attr("y", 15).attr("text-anchor", "end").attr("fill", cssVar("--accent")).attr("font-size", 9).attr("font-weight", 700).text("proj");
             g.append("title").text(s.cell.label + " — projected best-third (" + (s.cell.p_qualify * 100).toFixed(0) + "% to qualify) — not yet clinched");
           } else if (s.cell.real && s.cell.score) {
-            // Feed-driven bracket: this side advanced by an actually-played knockout — show the score.
+            // Decided: this side advanced by an actually-played knockout — show the score, locked in.
             g.append("text").attr("x", s.w - 6).attr("y", 15).attr("text-anchor", "end").attr("fill", cssVar("--good")).attr("font-size", 9).attr("font-weight", 700).text(s.cell.score + " ✓");
-            g.append("title").text(s.cell.team + " won " + s.cell.score + " — through (" + (s.cell.champion * 100).toFixed(1) + "% title odds)");
+            g.append("title").text(s.cell.team + " won " + s.cell.score + " — through to the " + koRoundName(names[ri] || ""));
+          } else if (undecided) {
+            // Projected slot: most-likely occupant + its % to reach it; click for the full field.
+            g.append("text").attr("x", s.w - 6).attr("y", 15).attr("text-anchor", "end").attr("fill", cssVar("--accent")).attr("font-size", 9).attr("font-weight", 700).text(reachPct + "%");
+            g.append("title").text(s.cell.team + " — " + reachPct + "% to reach this " + koRoundName(names[ri] || "") + " slot (most-likely); click for every team's odds");
           } else {
             g.append("title").text(s.cell.team + " — " + (s.cell.champion * 100).toFixed(1) + "% title odds");
           }
           // U3.2: keyboard-reachable bracket nodes (tabindex + role + aria-label + focus highlight).
-          g.attr("tabindex", 0).attr("role", "link").attr("class", "bk-node bk-team")
-            .attr("aria-label", s.cell.team + ", " + (s.cell.champion * 100).toFixed(1) + "% title odds — open team");
+          var aria = undecided
+            ? "projected " + s.cell.team + ", " + reachPct + "% to reach this slot — open odds"
+            : s.cell.team + ", " + (s.cell.champion * 100).toFixed(1) + "% title odds — open team";
+          g.attr("tabindex", 0).attr("role", "link").attr("class", "bk-node bk-team").attr("aria-label", aria);
           function hi(on) { svg.selectAll("rect[data-team]").attr("opacity", function () { return !on || d3.select(this).attr("data-team") === s.cell.team ? 1 : .28; }); }
+          var act = undecided
+            ? function () { showSlotDist(distEl, s.cell, names[ri]); }
+            : function () { location.hash = "#/team/" + encodeURIComponent(s.cell.team); };
           g.on("mouseenter", function () { hi(true); }).on("mouseleave", function () { hi(false); })
             .on("focus", function () { hi(true); }).on("blur", function () { hi(false); })
-            .on("click", function () { location.hash = "#/team/" + encodeURIComponent(s.cell.team); })
-            .on("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); location.hash = "#/team/" + encodeURIComponent(s.cell.team); } });
+            .on("click", act)
+            .on("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
         } else {
           g.append("text").attr("x", 10).attr("y", 15).attr("fill", cssVar("--faint")).attr("font-size", 12).attr("font-style", "italic").text(s.cell.label);
         }
