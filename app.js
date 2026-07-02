@@ -294,9 +294,20 @@
     return { R32: "Round of 32", R16: "Round of 16", QF: "Quarter-final", SF: "Semi-final",
       Final: "Final", Champion: "Champion" }[code] || code;
   }
-  // Render the "who reaches this slot" distribution for a clicked, undecided bracket slot.
+  // Render the odds for a clicked, undecided bracket slot. When the feeding match is already SET
+  // (both sides known but unplayed) show its full resolution — extra time, penalties, advance split;
+  // otherwise show the "who reaches this slot" reach distribution over every contender.
   function showSlotDist(distEl, cell, stageCode) {
     if (!distEl) return;
+    if (cell.match) {
+      distEl.innerHTML = '<div class="bk-dist-head"><b>' + esc(cell.match.home) + " v " +
+        esc(cell.match.away) + '</b><span class="faint">next match for this ' +
+        esc(koRoundName(stageCode)) + " slot · a knockout can't end level</span></div>" +
+        koOutcomeHtml(cell.match);
+      distEl.style.display = "";
+      distEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      return;
+    }
     var cands = cell.candidates || [];
     var title = stageCode === "Champion" ? "Who lifts the trophy?"
       : "Who reaches this " + koRoundName(stageCode) + " slot?";
@@ -1484,6 +1495,47 @@
     return lab ? '<span class="tier ko">' + lab + "</span>" : "";
   }
 
+  // ---- knockout outcome distribution (a KO tie can't end level) ----
+  function koPct(x) { return (x * 100 < 0.5 ? "<0.5" : (x * 100).toFixed(0)) + "%"; }
+  function advBar(ko) {  // two-way advance bar (home | away), reusing the W/D/L bar styling
+    return '<span class="wdlbar"><i class="bh" style="width:' + (ko.advance.home * 100) +
+      '%"></i><i class="ba" style="width:' + (ko.advance.away * 100) + '%"></i></span>';
+  }
+  function koModeRow(label, ph, pa) {  // one phase: home% | label | away%
+    return '<div class="ko-mrow"><span class="hv">' + koPct(ph) + '</span>' +
+      '<div class="qbar"><i class="bh" style="width:' + (ph * 100) + '%"></i></div>' +
+      '<span class="lbl">' + label + '</span>' +
+      '<div class="qbar rev"><i class="ba" style="width:' + (pa * 100) + '%"></i></div>' +
+      '<span class="av">' + koPct(pa) + "</span></div>";
+  }
+  // Full breakdown panel (match detail + bracket slot). The six mutually-exclusive outcomes
+  // (each team × win-in-90 / after-ET / on-pens) sum to 1.
+  function koOutcomeHtml(ko) {
+    var h = ko.home, a = ko.away, wm = ko.win_mode, xg = ko.xg;
+    return '<div class="ko-adv">' + flagImg(h, "sm") + " " + esc(h) + " <b>" + koPct(ko.advance.home) +
+      '</b><span class="faint">advance</span><b>' + koPct(ko.advance.away) + "</b> " + esc(a) + " " +
+      flagImg(a, "sm") + "</div>" + advBar(ko) +
+      '<div class="ko-modes">' +
+        koModeRow("in 90 minutes", wm.home.reg, wm.away.reg) +
+        koModeRow("after extra time", wm.home.et, wm.away.et) +
+        koModeRow("on penalties", wm.home.pens, wm.away.pens) +
+      "</div>" +
+      '<div class="faint ko-meta">extra time <b>' + koPct(ko.p_extra_time) + "</b> · penalties <b>" +
+        koPct(ko.p_penalties) + "</b> · shootout edge " + esc(h) + " " + koPct(ko.pens_winprob.home) +
+        " / " + esc(a) + " " + koPct(ko.pens_winprob.away) + "</div>" +
+      '<div class="faint ko-meta">xG incl. extra time: ' + esc(h) + " " + xg.total.home.toFixed(2) +
+        " · " + esc(a) + " " + xg.total.away.toFixed(2) +
+        ' <span title="a penalty shootout is not open play">(shootout excluded)</span></div>';
+  }
+  // Compact card version: advance bar + a one-line ET / pens / xG summary.
+  function koCardHtml(ko) {
+    return '<div class="mc-adv">' + esc(ko.home) + " <b>" + koPct(ko.advance.home) +
+      '</b> <span class="faint">adv</span> <b>' + koPct(ko.advance.away) + "</b> " + esc(ko.away) +
+      "</div>" + advBar(ko) +
+      '<div class="mc-fav faint">ET ' + koPct(ko.p_extra_time) + " · pens " + koPct(ko.p_penalties) +
+      " · xG " + ko.xg.total.home.toFixed(1) + "–" + ko.xg.total.away.toFixed(1) + "</div>";
+  }
+
   function renderMatches(root, date) {
     var wrap = ce("div", "wrap"); root.appendChild(wrap);
     var sched = D.schedule || [], dates = scheduleDates();
@@ -1526,6 +1578,12 @@
           '<div class="mc-city">' + esc(f.city || "") + stageChip(f) + '<span class="chip ' + (called ? "pos" : "neg") + '" style="margin-left:auto">' + (called ? "✓ called" : "✗ missed") + "</span></div>" +
           '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + '</span><b class="mc-score">' + rs.home_goals + "–" + rs.away_goals + "</b><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
           '<div class="mc-fav faint">Full time' + pens + " · pre-match " + esc(fav) + " " + (favp * 100).toFixed(0) + "% win</div>";
+      } else if (f.ko) {
+        // Knockout tie — can't end level: show advance / ET / penalties, not a W/D/L incl. a draw.
+        a.innerHTML =
+          '<div class="mc-city">' + esc(f.city || "") + stageChip(f) + "</div>" +
+          '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + "</span><span class='faint'>v</span><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
+          koCardHtml(f.ko);
       } else {
         a.innerHTML =
           '<div class="mc-city">' + esc(f.city || "") + stageChip(f) + tierChip(p) + "</div>" +
@@ -1564,6 +1622,13 @@
     card.innerHTML += '<div class="statrow" style="margin-top:14px"><div class="hv">' + p.lambda_home.toFixed(2) + '</div><div class="bar"><i class="bh" style="width:' + (p.lambda_home / (p.lambda_home + p.lambda_away) * 100) + '%"></i></div><div class="lbl">Expected goals</div><div class="bar"><i class="ba" style="width:' + (p.lambda_away / (p.lambda_home + p.lambda_away) * 100) + '%"></i></div><div class="av">' + p.lambda_away.toFixed(2) + "</div></div>";
     card.innerHTML += '<div class="faint" style="text-align:center;margin-top:8px;font-size:13px">expected total ' + p.expected_total.toFixed(1) + " goals</div>";
     wrap.appendChild(card);
+    // Knockout tie: the W/D/L above is the 90-minute picture; a KO can't end level, so show how the
+    // draw resolves — extra time, penalties, the advance split, and xG including extra time.
+    if (f.ko && !f.played) {
+      var kp = ce("div", "panel");
+      kp.innerHTML = '<h4 class="mini-h">How the tie resolves <span class="faint">· a knockout can\'t end level</span></h4>' + koOutcomeHtml(f.ko);
+      wrap.appendChild(kp);
+    }
     var pd = ce("div", "panel"); pd.innerHTML = '<h4 class="mini-h">Scoreline distribution <span class="faint">· Dixon–Coles</span></h4>'; pd.appendChild(scoreDistEl(p, n0, n1)); wrap.appendChild(pd);
     // View 1: the Realism Engine's generated box score for this fixture (from the offline slate).
     var sl = (D.realism_slate || {})[n0 + "|" + n1] || (D.realism_slate || {})[n1 + "|" + n0];
