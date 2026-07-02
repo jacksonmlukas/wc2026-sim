@@ -339,6 +339,7 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .tier.ln { background: color-mix(in srgb, var(--home) 18%, transparent); color: var(--home); }
 .tier.ti { background: color-mix(in srgb, var(--accent-2) 20%, transparent); color: var(--accent-2); }
 .tier.cf { background: var(--panel-2); color: var(--muted); }
+.tier.ko { background: color-mix(in srgb, var(--champ) 20%, transparent); color: var(--champ); }
 .mc-teams { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); font-weight: 700; margin: var(--space-2) 0 11px; font-size: var(--fs-2); }
 .mc-teams span { display: flex; align-items: center; gap: 7px; }
 .wdlbar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; background: var(--line); }

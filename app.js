@@ -1433,10 +1433,20 @@
     return '<span class="tier ' + t[1] + '">' + t[0] + "</span>";
   }
 
+  // Knockout-round label for a fixture's `stage` code (group fixtures carry no badge).
+  function stageLabel(code) {
+    return { R32: "Round of 32", R16: "Round of 16", QF: "Quarter-final", SF: "Semi-final",
+      "3P": "Third place", Final: "Final" }[code] || "";
+  }
+  function stageChip(f) {
+    var lab = stageLabel(f.stage);
+    return lab ? '<span class="tier ko">' + lab + "</span>" : "";
+  }
+
   function renderMatches(root, date) {
     var wrap = ce("div", "wrap"); root.appendChild(wrap);
     var sched = D.schedule || [], dates = scheduleDates();
-    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Matches</h2><span class="note">real WC2026 group-stage fixtures · full-time score for played matches, model prediction for upcoming · click for detail</span>';
+    var head = ce("div", "sec-head"); head.innerHTML = '<h2>Matches</h2><span class="note">real WC2026 fixtures — group stage & knockouts · full-time score for played matches, model prediction for upcoming · click for detail</span>';
     wrap.appendChild(head);
 
     // Featured (fully-simulated) match highlight.
@@ -1470,13 +1480,14 @@
         var favOut = (p.home >= p.draw && p.home >= p.away) ? "home"
           : (p.away >= p.draw && p.away >= p.home) ? "away" : "draw";
         var called = favOut === rs.outcome;
+        var pens = rs.shootout_winner ? ' · ' + esc(rs.shootout_winner) + " on pens" : "";
         a.innerHTML =
-          '<div class="mc-city">' + esc(f.city || "") + '<span class="chip ' + (called ? "pos" : "neg") + '" style="margin-left:auto">' + (called ? "✓ called" : "✗ missed") + "</span></div>" +
+          '<div class="mc-city">' + esc(f.city || "") + stageChip(f) + '<span class="chip ' + (called ? "pos" : "neg") + '" style="margin-left:auto">' + (called ? "✓ called" : "✗ missed") + "</span></div>" +
           '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + '</span><b class="mc-score">' + rs.home_goals + "–" + rs.away_goals + "</b><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
-          '<div class="mc-fav faint">Full time · pre-match ' + esc(fav) + " " + (favp * 100).toFixed(0) + "% win</div>";
+          '<div class="mc-fav faint">Full time' + pens + " · pre-match " + esc(fav) + " " + (favp * 100).toFixed(0) + "% win</div>";
       } else {
         a.innerHTML =
-          '<div class="mc-city">' + esc(f.city || "") + tierChip(p) + "</div>" +
+          '<div class="mc-city">' + esc(f.city || "") + stageChip(f) + tierChip(p) + "</div>" +
           '<div class="mc-teams"><span>' + flagImg(f.home, "sm") + " " + esc(f.home) + "</span><span class='faint'>v</span><span>" + esc(f.away) + " " + flagImg(f.away, "sm") + "</span></div>" +
           wdlBar(p) +
           '<div class="mc-fav faint">' + esc(fav) + " " + (favp * 100).toFixed(0) + "% · xG " + f.pred.lambda_home.toFixed(1) + "–" + f.pred.lambda_away.toFixed(1) + "</div>";
