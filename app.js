@@ -276,7 +276,13 @@
   function bracketView(wrap) {
     var br = D.bracket; if (!br || !br.rounds) return;
     var head = ce("div", "sec-head"); head.id = "bracket";
-    head.innerHTML = '<h2>Predicted bracket</h2><span class="note">official R32 slot map · most-likely path · hover a team to trace it · <span style="border:1px dashed var(--accent);border-radius:3px;padding:0 4px;color:var(--muted)">dashed</span> = projected best-third (not yet clinched)</span>';
+    // Once the knockout draw is published the bracket is driven by the feed's ACTUAL results
+    // (played rounds advance the real winner; later rounds stay the model's most-likely path).
+    // Before then it's the official-slot-map projection with provisional best-third slots.
+    var note = br.source === "feed"
+      ? 'actual knockout bracket · played matches advance the real winner · unplayed rounds show the most-likely path · hover a team to trace it'
+      : 'official R32 slot map · most-likely path · hover a team to trace it · <span style="border:1px dashed var(--accent);border-radius:3px;padding:0 4px;color:var(--muted)">dashed</span> = projected best-third (not yet clinched)';
+    head.innerHTML = '<h2>' + (br.source === "feed" ? "Knockout bracket" : "Predicted bracket") + '</h2><span class="note">' + note + '</span>';
     wrap.appendChild(head);
     var p = ce("div", "panel"); p.style.overflowX = "auto"; var holder = ce("div"); holder.style.minWidth = "920px"; p.appendChild(holder); wrap.appendChild(p);
     drawBracket(holder, br);
@@ -320,6 +326,10 @@
           if (s.cell.projected) {
             g.append("text").attr("x", s.w - 6).attr("y", 15).attr("text-anchor", "end").attr("fill", cssVar("--accent")).attr("font-size", 9).attr("font-weight", 700).text("proj");
             g.append("title").text(s.cell.label + " — projected best-third (" + (s.cell.p_qualify * 100).toFixed(0) + "% to qualify) — not yet clinched");
+          } else if (s.cell.real && s.cell.score) {
+            // Feed-driven bracket: this side advanced by an actually-played knockout — show the score.
+            g.append("text").attr("x", s.w - 6).attr("y", 15).attr("text-anchor", "end").attr("fill", cssVar("--good")).attr("font-size", 9).attr("font-weight", 700).text(s.cell.score + " ✓");
+            g.append("title").text(s.cell.team + " won " + s.cell.score + " — through (" + (s.cell.champion * 100).toFixed(1) + "% title odds)");
           } else {
             g.append("title").text(s.cell.team + " — " + (s.cell.champion * 100).toFixed(1) + "% title odds");
           }
